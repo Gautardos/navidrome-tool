@@ -1,5 +1,14 @@
 <?php
+
+require __DIR__ . '/vendor/autoload.php';
+
+// Utiliser la classe ConfigReader sans require
+use Model\ConfigReader;
+
 session_start();
+
+$config = new ConfigReader(__DIR__ . '/../etc/config.json');
+
 $username = "HERE";
 $password = "HERE";
 $history_file = "/home/gautard/spotdl-web/log/history.txt";

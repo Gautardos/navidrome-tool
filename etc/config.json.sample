@@ -1,0 +1,17 @@
+{
+    "rabbitmq": {
+      "host": "localhost",
+      "port": 5672,
+      "username": "rabbitmq_user",
+      "password": "secure_rabbitmq_password"
+    },
+    "user_auth": {
+      "username": "user@example.com",
+      "password": "secure_user_password"
+    },
+    "grok_api": {
+      "api_key": "grok_api_key_789abcd",
+      "endpoint": "https://api.x.ai/v1/chat/completions",
+      "model": "grok-beta"
+    }
+  }
