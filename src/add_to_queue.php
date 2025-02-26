@@ -44,7 +44,7 @@ try {
             ]);
             $msg = new AMQPMessage($message, ['delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT]);
             $channel->basic_publish($msg, '', 'spotdl_queue');
-            file_put_contents('/home/gautard/spotdl-web/history/history.txt', date('Y-m-d H:i:s') . " - Ajouté à la file : $url\n", FILE_APPEND);
+            file_put_contents('/home/gautard/spotdl-web/log/history.txt', date('Y-m-d H:i:s') . " - Ajouté à la file : $url\n", FILE_APPEND);
         }
     }
 

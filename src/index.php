@@ -2,8 +2,8 @@
 session_start();
 $username = "HERE";
 $password = "HERE";
-$history_file = "/home/gautard/spotdl-web/history/history.txt";
-$status_history_file = "/home/gautard/spotdl-web/history/status_history.txt";
+$history_file = "/home/gautard/spotdl-web/log/history.txt";
+$status_history_file = "/home/gautard/spotdl-web/log/status_history.txt";
 
 if (isset($_GET['logout'])) {
     session_destroy();

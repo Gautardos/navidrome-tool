@@ -1,7 +1,7 @@
 <?php
 header('Content-Type: text/html');
 
-$status_history_file = '/home/gautard/spotdl-web/history/status_history.txt';
+$status_history_file = '/home/gautard/spotdl-web/log/status_history.txt';
 
 if (file_exists($status_history_file)) {
     $lines = file($status_history_file, FILE_SKIP_EMPTY_LINES | FILE_IGNORE_NEW_LINES);

@@ -15,7 +15,7 @@ $action = $_POST['action'] ?? '';
 $response = ['message' => 'Action non reconnue.', 'success' => false];
 
 // Journalisation des actions dans status_history.txt, même en cas d’erreur
-$log_file = "/home/gautard/spotdl-web/history/status_history.txt";
+$log_file = "/home/gautard/spotdl-web/log/status_history.txt";
 $log_message = "[" . date('Y-m-d H:i:s') . "] Gestion du service - Action demandée : " . $action . " - Données reçues : " . json_encode($_POST) . "\n";
 file_put_contents($log_file, $log_message, FILE_APPEND | LOCK_EX);
 
