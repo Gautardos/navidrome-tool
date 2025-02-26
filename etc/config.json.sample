@@ -3,7 +3,8 @@
       "host": "localhost",
       "port": 5672,
       "username": "rabbitmq_user",
-      "password": "secure_rabbitmq_password"
+      "password": "secure_rabbitmq_password",
+      "virtual_host": "/"
     },
     "user_auth": {
       "username": "user@example.com",

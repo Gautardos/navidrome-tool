@@ -1,11 +1,21 @@
 <?php
 header('Content-Type: application/json');
 
-require 'vendor/autoload.php';
+require __DIR__ . '/vendor/autoload.php';
 use PhpAmqpLib\Connection\AMQPStreamConnection;
+use Model\ConfigReader;
+
+$config = new ConfigReader();
+
+$rabbitConfig = $config->getRabbitMQConfig();
 
 try {
-    $connection = new AMQPStreamConnection('localhost', 5672, 'gautard', 'gautard');
+    $connection = new AMQPStreamConnection(
+        $rabbitConfig['host'],
+        $rabbitConfig['port'],
+        $rabbitConfig['username'],
+        $rabbitConfig['password']
+    );
     $channel = $connection->channel();
 
     $queue = 'spotdl_status_queue';

@@ -1,8 +1,16 @@
 <?php
+
+require __DIR__ . '/vendor/autoload.php';
+
+use Model\ConfigReader;
+
+$config = new ConfigReader();
+
+$grokConfig = $config->getGrokAPIConfig();
+
 header('Content-Type: application/json');
 
-$apiKey = 'HERE';
-if (!$apiKey) {
+if (!$grokConfig['api_key']) {
     echo json_encode(['error' => 'Clé API Grok manquante']);
     exit;
 }
@@ -48,15 +56,15 @@ $context = [
 ];
 
 // Appel à l'API réelle de Grok
-$curl = curl_init('https://api.x.ai/v1/chat/completions');
+$curl = curl_init($grokConfig['endpoint']);
 curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
 curl_setopt($curl, CURLOPT_POST, true);
 curl_setopt($curl, CURLOPT_HTTPHEADER, [
-    'Authorization: Bearer ' . $apiKey,
+    'Authorization: Bearer ' . $grokConfig['api_key'],
     'Content-Type: application/json'
 ]);
 curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode([
-    'model' => 'grok-beta',
+    'model' => $grokConfig['model'],
     'messages' => [
         ['role' => 'system', 'content' => json_encode($context)],
         ['role' => 'user', 'content' => $description]

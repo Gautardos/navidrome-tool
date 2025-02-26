@@ -1,7 +1,7 @@
 <?php
 header('Content-Type: text/html');
 
-$history_file = '/home/gautard/spotdl-web/log/history.txt';
+$history_file = '../log/history.txt';
 
 if (file_exists($history_file)) {
     $history = file_get_contents($history_file);

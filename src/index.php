@@ -7,12 +7,12 @@ use Model\ConfigReader;
 
 session_start();
 
-$config = new ConfigReader(__DIR__ . '/../etc/config.json');
+$config = new ConfigReader();
 
-$username = "HERE";
-$password = "HERE";
-$history_file = "/home/gautard/spotdl-web/log/history.txt";
-$status_history_file = "/home/gautard/spotdl-web/log/status_history.txt";
+$userConfig = $config->getUserAuthConfig();
+
+$history_file = "../log/history.txt";
+$status_history_file = "../log/status_history.txt";
 
 if (isset($_GET['logout'])) {
     session_destroy();
@@ -22,7 +22,7 @@ if (isset($_GET['logout'])) {
 // Vérification de l'authentification
 if (!isset($_SESSION['logged_in'])) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        if (isset($_POST['username']) && $_POST['username'] === $username && $_POST['password'] === $password) {
+        if (isset($_POST['username']) && $_POST['username'] === $userConfig['username'] && $_POST['password'] === $userConfig['password']) {
             $_SESSION['logged_in'] = true;
         } else {
             $error_message = "Identifiants incorrects.";
@@ -203,12 +203,19 @@ if (isset($_SESSION['logged_in'])) {
                     method: 'POST',
                     data: { urls: urls, sync: sync },
                     success: function(response) {
-                        $('#output').html(response.success || response.error);
-                        $('#urls').val('');
-                        updateCurrentStatus();
+                        console.log('Réponse brute:', response); // Débogage
+                        try {
+                            const data = typeof response === 'string' ? JSON.parse(response) : response;
+                            $('#output').html(data.message || data.error || 'Réponse inattendue');
+                            $('#urls').val('');
+                            updateCurrentStatus();
+                        } catch (e) {
+                            $('#output').html('Erreur de parsing JSON: ' + e.message);
+                        }
                     },
                     error: function(xhr, status, error) {
-                        $('#output').html('Erreur lors de l’ajout à la file.');
+                        $('#output').html('Erreur AJAX: ' + error);
+                        console.log('Erreur AJAX:', xhr.responseText); // Débogage
                     }
                 });
             }

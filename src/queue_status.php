@@ -1,32 +1,37 @@
 <?php
+// Définir le type de contenu comme HTML
 header('Content-Type: text/html');
 
-require 'vendor/autoload.php';
-use PhpAmqpLib\Connection\AMQPStreamConnection;
+// Charger l'autoloader de Composer depuis src/vendor/
+require __DIR__ . '/vendor/autoload.php';
+
+// Importer les classes nécessaires
+use Model\Amqp\Handler;
+
+/** @var Handler $handler */
+$handler = new Handler();
 
 try {
-    $connection = new AMQPStreamConnection('localhost', 5672, 'gautard', 'gautard');
-    $channel = $connection->channel();
-
+    // Récupérer les informations de la file spotdl_queue via Handler
     $queue = 'spotdl_queue';
-    $queue_info = $channel->queue_declare($queue, false, true, false, false);
-    $message_count = $queue_info[1]; // Nombre de messages dans la file
-    $consumer_count = $queue_info[2]; // Nombre de consommateurs
+    $queueInfo = $handler->getQueueInfo($queue); // Nouvelle méthode à ajouter dans Handler
+    $messageCount = $queueInfo['message_count'];
+    $consumerCount = $queueInfo['consumer_count'];
 
-    $channel->close();
-    $connection->close();
-
-    echo "<p>Messages en attente : $message_count</p>";
-    echo "<p>Consommateurs actifs : $consumer_count</p>";
+    // Afficher les informations de la file
+    echo "<p>Messages en attente : $messageCount</p>";
+    echo "<p>Consommateurs actifs : $consumerCount</p>";
     echo "<p>Derniers messages (limité à 5) :</p>";
     echo "<ul>";
-    $history = file_exists('/music/downloads/history.txt') ? file('/music/downloads/history.txt', FILE_SKIP_EMPTY_LINES) : [];
-    $last_messages = array_slice($history, -5);
-    foreach ($last_messages as $line) {
+
+    // Lire les 5 derniers messages du fichier history.txt
+    $historyFile = '/music/downloads/history.txt';
+    $history = file_exists($historyFile) ? file($historyFile, FILE_SKIP_EMPTY_LINES) : [];
+    $lastMessages = array_slice($history, -5);
+    foreach ($lastMessages as $line) {
         echo "<li>" . htmlspecialchars($line) . "</li>";
     }
     echo "</ul>";
 } catch (Exception $e) {
     echo "<p>Erreur lors de la récupération de l’état : " . htmlspecialchars($e->getMessage()) . "</p>";
 }
-?>
