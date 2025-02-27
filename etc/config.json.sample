@@ -6,6 +6,10 @@
       "password": "secure_rabbitmq_password",
       "virtual_host": "/"
     },
+    "spotify": {
+      "client_id": "",
+      "client_secret": ""
+    },
     "user_auth": {
       "username": "user@example.com",
       "password": "secure_user_password"
@@ -14,5 +18,9 @@
       "api_key": "grok_api_key_789abcd",
       "endpoint": "https://api.x.ai/v1/chat/completions",
       "model": "grok-beta"
+    },
+    "paths": {
+      "downloads": "/downloads/test/",
+      "music":"/music/downloads/"
     }
   }

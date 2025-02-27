@@ -2,13 +2,16 @@ import os
 import mutagen.easyid3
 from mutagen.easyid3 import EasyID3
 import shutil
+import json
 import time
 import re
 from datetime import datetime
 
 # Répertoires
-DOWNLOADS_DIR = "/downloads/"  # Source des téléchargements
-BASE_PROCESSED_DIR = "/music/downloads/"  # Dossier de base pour les sous-dossiers nommés d’après l’artiste de l’album
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'etc', 'config.json'))
+STATUS_HISTORY_FILE = os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'log', 'status_history.txt'))
+COMMAND_HISTORY_FILE = os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'log', 'command_history.txt'))
 
 # Règles de mapping des genres avec expressions régulières
 GENRE_PATTERNS = {
@@ -24,7 +27,7 @@ def ensure_directory(path):
         if not os.path.exists(path):
             os.makedirs(path)
         try:
-            os.chown(path, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
+            #os.chown(path, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
             os.chmod(path, 0o775)
             log_action("Dossier créé et permissions ajustées avec succès", path)
         except PermissionError as e:
@@ -40,10 +43,10 @@ def ensure_directory(path):
 def log_action(action, file_path, message=""):
     """Journalise les actions dans status_history.txt via spotdl-consumer.py."""
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-    with open("/home/gautard/spotdl-web/log/status_history.txt", 'a') as f:
+    with open(STATUS_HISTORY_FILE, 'a') as f:
         f.write(f"[{timestamp}] Fichier: {file_path} - {action} - {message}\n")
-    os.chown("/home/gautard/spotdl-web/log/status_history.txt", 1000, 33)
-    os.chmod("/home/gautard/spotdl-web/log/status_history.txt", 0o664)
+    os.chown(STATUS_HISTORY_FILE, 1000, 33)
+    os.chmod(STATUS_HISTORY_FILE, 0o664)
 
 def sanitize_name(name):
     """Remplace les '/' par des ',' dans un nom pour éviter les erreurs de chemin, et normalise les espaces."""
@@ -71,12 +74,12 @@ def map_genre(genre):
     log_action("Genre non mappé (débogage)", "", f"Genre non mappé : {genre_lower!r}")
     return genre  # Retourne le genre original si aucun mapping n'est trouvé
 
-def get_processed_dir(main_artist):
+def get_processed_dir(main_artist, music_path):
     """Retourne le chemin du dossier processed basé sur l’artiste principal (albumartist) sous /music/downloads/."""
     artist_folder = sanitize_name(main_artist) or "Unknown"
-    return os.path.join(BASE_PROCESSED_DIR, artist_folder)
+    return os.path.join(music_path, artist_folder)
 
-def process_mp3_file(file_path):
+def process_mp3_file(file_path, music_dir):
     """Traite un fichier MP3 : modifie les tags ID3, renomme avec tracknum sur 2 digits, utilise albumartist comme artiste principal, et ajuste le titre avec featuring basé sur artist, avec journalisation."""
     try:
         log_action("Début du traitement", file_path)
@@ -153,7 +156,7 @@ def process_mp3_file(file_path):
         ext = os.path.splitext(file_path)[1].lower()  # Extension (par exemple, .mp3)
 
         # Vérifie si le nouveau nom existe déjà dans /music/downloads/<albumartist>/, et écrase l’ancien fichier
-        processed_dir = get_processed_dir(main_artist)
+        processed_dir = get_processed_dir(main_artist, music_dir)
         new_filename = f"{artist} - {album} - {tracknum} - {title}{ext}"
         new_path = os.path.join(processed_dir, new_filename)
         if os.path.exists(new_path):
@@ -177,7 +180,7 @@ def process_mp3_file(file_path):
 
         # Tente de modifier la propriété et les permissions, avec gestion spécifique de [Errno 1]
         try:
-            os.chown(new_path, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
+            # os.chown(new_path, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
             os.chmod(new_path, 0o664)
             log_action("Permissions ajustées avec succès", new_path)
         except PermissionError as e:
@@ -191,20 +194,28 @@ def process_mp3_file(file_path):
 
 def main():
     """Scanne et traite tous les fichiers MP3 dans /downloads/, sans supprimer les fichiers restants sauf en cas de succès."""
+    
+    with open(CONFIG_PATH, 'r') as f:
+        config = json.load(f)
+    path_config = config.get('paths', {}) 
+    downloads_dir = path_config.get('downloads', '/downloads/')
+    music_dir = path_config.get('music', '/music/downloads/')
+
     # Crée le dossier de base /music/downloads/ s’il n’existe pas
-    ensure_directory(BASE_PROCESSED_DIR)
+    ensure_directory(music_dir)
+
 
     # Liste tous les fichiers dans /downloads/
     processed_files = []
-    for filename in os.listdir(DOWNLOADS_DIR):
+    for filename in os.listdir(downloads_dir):
         if filename.lower().endswith('.mp3'):
-            file_path = os.path.join(DOWNLOADS_DIR, filename)
-            process_mp3_file(file_path)
+            file_path = os.path.join(downloads_dir, filename)
+            process_mp3_file(file_path, music_dir)
             processed_files.append(filename)
 
     # Supprime uniquement les fichiers qui ont été traités avec succès
     for filename in processed_files:
-        file_path = os.path.join(DOWNLOADS_DIR, filename)
+        file_path = os.path.join(downloads_dir, filename)
         if os.path.isfile(file_path):
             try:
                 os.remove(file_path)
