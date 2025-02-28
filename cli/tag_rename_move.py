@@ -67,7 +67,7 @@ def sanitize_name(name):
     if not name:
         return ""
     name = " ".join(name.split()).strip()
-    return name.replace("/", ",") if name else ""
+    return name.replace("/", ",").replace('"', "").replace(":","") if name else ""
 
 def map_genre(genre, genre_patterns):
     """Mappe un genre vers une valeur standardisée en utilisant des expressions régulières configurables, avec journalisation pour débogage."""
@@ -188,6 +188,8 @@ def process_mp3_file(file_path, music_dir, genre_patterns):
         # Vérifier les permissions pour le répertoire source et destination
         source_dir = os.path.dirname(file_path)
         dest_dir = os.path.dirname(new_path)
+        ensure_directory(dest_dir)
+
         if not os.access(source_dir, os.W_OK | os.R_OK):
             log_action(f"Erreur : Pas de permissions pour accéder au répertoire source {source_dir}", file_path, f"Nouvelle position : {new_path}")
             return

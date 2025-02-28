@@ -1,4 +1,13 @@
 <?php
+
+require __DIR__ . '/vendor/autoload.php';
+
+use Model\ConfigReader;
+use Model\Amqp\Handler;
+
+$handler = new Handler();
+$config = new ConfigReader();
+
 // Définir le type de contenu comme JSON
 header('Content-Type: application/json');
 
@@ -13,27 +22,14 @@ $urls = explode("\n", trim($_POST['urls']));
 $sync = isset($_POST['sync']) && $_POST['sync'] == 1;
 
 // Charger les identifiants Spotify depuis le fichier de configuration
-$config_path = '/home/gautard/spotdl-config/spotify_config.json';
-if (!file_exists($config_path)) {
-    echo json_encode(['error' => 'Fichier de configuration Spotify manquant']);
-    exit;
-}
-$config = json_decode(file_get_contents($config_path), true);
-if (!$config || !isset($config['client_id']) || !isset($config['client_secret'])) {
+
+$spotifyConfig = $config->getSpotifyConfig();
+if (!isset($spotifyConfig['client_id']) || !isset($spotifyConfig['client_secret'])) {
     echo json_encode(['error' => 'Identifiants Spotify invalides dans le fichier de configuration']);
     exit;
 }
-$client_id = $config['client_id'];
-$client_secret = $config['client_secret'];
-
-// Charger l'autoloader de Composer depuis src/vendor/
-require __DIR__ . '/vendor/autoload.php';
-
-// Importer les classes nécessaires
-use Model\Amqp\Handler;
-
-/** @var Handler $handler */
-$handler = new Handler();
+$client_id = $spotifyConfig['client_id'];
+$client_secret = $spotifyConfig['client_secret'];
 
 try {
     // Envoyer chaque URL à la file spotdl_queue via Handler

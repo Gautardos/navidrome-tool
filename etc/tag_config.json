@@ -1,8 +1,27 @@
 {
     "genre_patterns": {
-      "\\s*rap\\s*": "Rap & Hip-Hop",
-      "\\s*(hip[- ]?hop)\\s*": "Rap & Hip-Hop",
-      "\\s*[gG][- ]?[fF][uU][nN][kK]\\s*": "Rap & Hip-Hop",
-      "downtempo": "Electro"
+        "(?i)^(?!(.*french|.*français|.*rap.*hip.*hop|.*instrumental)).*\\s*rap\\s*": "Rap & Hip-Hop",
+        "(?i)^(?!(.*rap.*hip.*hop|.*instrumental)).*\\s*hip[- ]?hop\\s*": "Rap & Hip-Hop",
+        "(?i)g[ -]?funk": "Rap & Hip-Hop",
+        "(?i)dembow|afropop|afroswing|grime|horrorcore|phonk|uk drill|comedy": "Rap & Hip-Hop",
+        "(?i)downtempo|psytrance|^edm$": "Electro",
+        "(?i)trip[- ]?hop|^idm$|chillstep": "Instrumental / Hip-Hop",
+        "(?i)retro soul": "Soul",
+        "(?i)pop urbaine": "Rap Français",
+        "(?i)french pop|chanson": "Variété Française",
+        "(?i)soft pop|europop|psychedelic pop|hyperpop|folk pop|alternative dance|art pop|baroque pop|bedroom pop|britpop": "Pop",
+        "(?i)post-grunge|nu metal|glam metal|grunge": "Rock",
+        "(?i)nueva trova|fado": "Latin",
+        "(?i)amapiano": "Afrobeats",
+        "(?i)^ebm$": "Techno",
+        "(?i)\\s*rock\\s*": "Rock",
+        "(?i)\\s*punk\\s*": "Rock",
+        "(?i)\\s*house\\s*": "House",
+        "(?i)\\s*lo-fi\\s*": "Instrumental / Hip-Hop",
+        "(?i)\\s*techno\\s*": "Techno",
+        "(?i)\\s*jazz\\s*": "Jazz",
+        "(?i)\\s*latin\\s*": "Latin",
+        "(?i)\\s*electro\\s*": "Electro",
+        "(?i)\\s*r&b\\s*": "R&B"
     }
   }

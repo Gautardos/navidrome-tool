@@ -39,26 +39,28 @@ def ensure_directory(path):
     directory = os.path.dirname(path)
     if not os.path.exists(directory):
         os.makedirs(directory)
-    os.chown(directory, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
-    os.chmod(directory, 0o775)
+    #os.chown(directory, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
+    #os.chmod(directory, 0o775)
 
 def log_command(command, url):
     """Journalise la commande exécutée dans command_history.txt."""
     ensure_directory(COMMAND_HISTORY_FILE)
     with open(COMMAND_HISTORY_FILE, 'a') as f:
         f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] URL: {url} - Commande: {command}\n")
-    os.chown(COMMAND_HISTORY_FILE, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
-    os.chmod(COMMAND_HISTORY_FILE, 0o664)
+    #os.chown(COMMAND_HISTORY_FILE, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
+    #os.chmod(COMMAND_HISTORY_FILE, 0o664)
 
 def log_status(url, message):
     """Journalise les statuts dans status_history.txt."""
     ensure_directory(STATUS_HISTORY_FILE)
     with open(STATUS_HISTORY_FILE, 'a') as f:
         f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {url} - {message}\n")
-    os.chown(STATUS_HISTORY_FILE, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
-    os.chmod(STATUS_HISTORY_FILE, 0o664)
+    #os.chown(STATUS_HISTORY_FILE, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
+    #os.chmod(STATUS_HISTORY_FILE, 0o664)
 
 def callback(ch, method, properties, body):
+    # Mesurer le temps de traitement pour détecter les blocages
+    start_time = time.time()
     try:
         # Décoder le message JSON
         data = json.loads(body.decode())
@@ -80,9 +82,6 @@ def callback(ch, method, properties, body):
         print(f"Processing URL: {url}")
         log_status(url, "Début du téléchargement...")
         ensure_directory(STATUS_HISTORY_FILE)
-
-        # Mesurer le temps de traitement pour détecter les blocages
-        start_time = time.time()
 
         # Exécuter spotdl dans le virtual environment
         try:

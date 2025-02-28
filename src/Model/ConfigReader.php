@@ -82,6 +82,18 @@ class ConfigReader {
     }
 
     /**
+     * Récupère les configurations de Spotify
+     * @return array Les configurations spotify
+     * @throws \Exception Si la section spotify n'existe pas
+     */
+    public function getSpotifyConfig(): array {
+        if (!isset($this->config['spotify'])) {
+            throw new \Exception("La section 'spotify' n'existe pas dans la configuration.");
+        }
+        return $this->config['spotify'];
+    }
+
+    /**
      * Récupère une valeur spécifique de la configuration
      * @param string $section Section de la configuration (rabbitmq, user_auth, grok_api)
      * @param string $key Clé à récupérer dans la section
