@@ -1,0 +1,8 @@
+{
+    "genre_patterns": {
+      "\\s*rap\\s*": "Rap & Hip-Hop",
+      "\\s*(hip[- ]?hop)\\s*": "Rap & Hip-Hop",
+      "\\s*[gG][- ]?[fF][uU][nN][kK]\\s*": "Rap & Hip-Hop",
+      "downtempo": "Electro"
+    }
+  }
