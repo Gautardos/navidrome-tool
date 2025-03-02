@@ -63,11 +63,13 @@ def log_action(action, file_path, message=""):
             log_action("Erreur de permission bloquante pour log", STATUS_HISTORY_FILE, f"Exception : {str(e)}")
 
 def sanitize_name(name):
-    """Remplace les '/' par des ',' dans un nom pour éviter les erreurs de chemin, et normalise les espaces."""
+    """Remplace les '/' par des ',' dans un nom pour éviter les erreurs de chemin, normalise les espaces, et supprime un '.' uniquement s'il est à la fin."""
     if not name:
         return ""
     name = " ".join(name.split()).strip()
-    return name.replace("/", ",").replace('"', "").replace(":","") if name else ""
+    if name.endswith('.'):
+        name = name.rstrip('.')  # Supprime le point uniquement s'il est à la fin
+    return name.replace("/", ",").replace('"', "").replace(":", "").replace("?", "") if name else ""
 
 def map_genre(genre, genre_patterns):
     """Mappe un genre vers une valeur standardisée en utilisant des expressions régulières configurables, avec journalisation pour débogage."""

@@ -29,9 +29,10 @@ SOURCES = {
 }
 
 class LyricsFetcher:
-    def __init__(self, config_file):
+    def __init__(self, config_file, force_dl=False):
         self.config = self.load_config()
         self.results = {}
+        self.force_dl = force_dl  # Stockage du flag --force-dl
         # Initialisation de Spotify avec spotipy
         self.sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
             client_id=self.config["spotify"]["client_id"],
@@ -50,7 +51,6 @@ class LyricsFetcher:
             return ''
 
     def fetch_synced_lyrics(self, title, artist):
-        # Tentative LRC via lrclib
         try:
             params = {
                 'track_name': title,
@@ -65,7 +65,6 @@ class LyricsFetcher:
         except Exception as e:
             print(f"Erreur lrclib : {e}", file=sys.stderr)
 
-        # Tentative Spotify (recherche de piste, pas de paroles directes)
         try:
             results = self.sp.search(q=f'track:{title} artist:{artist}', type='track', limit=1)
             if results['tracks']['items']:
@@ -77,7 +76,6 @@ class LyricsFetcher:
         return None, False
 
     def fetch_unsynced_lyrics(self, title, artist):
-        # Tentative Genius
         try:
             headers = {'Authorization': f'Bearer {self.config["lyrics"]["genius"]["token"]}'}
             params = {'q': f'{title} {artist}'}
@@ -85,11 +83,10 @@ class LyricsFetcher:
             data = response.json()
             if data['response']['hits']:
                 song_url = data['response']['hits'][0]['result']['url']
-                return "Lyrics from Genius (placeholder)", False
+                return "", False
         except Exception as e:
             print(f"Erreur Genius : {e}", file=sys.stderr)
 
-        # Tentative Spotify comme fallback (recherche uniquement, pas de paroles)
         try:
             results = self.sp.search(q=f'track:{title} artist:{artist}', type='track', limit=1)
             if results['tracks']['items']:
@@ -108,6 +105,17 @@ class LyricsFetcher:
             
             if 'instrumental' in self.get_genre(file_path):
                 return 'skipped (instrumental)'
+
+            # Vérification des paroles existantes sauf si --force-dl est utilisé
+            if not self.force_dl:
+                if file_path.lower().endswith('.mp3'):
+                    audio_full = ID3(file_path)
+                    if audio_full.getall('USLT'):
+                        return 'skipped (lyrics already present)'
+                elif file_path.lower().endswith('.m4a'):
+                    audio_full = MP4(file_path)
+                    if audio_full.get('\xa9lyr', []):
+                        return 'skipped (lyrics already present)'
 
             # Priorité aux lyrics synchronisés
             lyrics, is_synced = self.fetch_synced_lyrics(title, artist)
@@ -146,6 +154,9 @@ class LyricsFetcher:
             elif result == 'not found':
                 color = Fore.RED
                 status = "No lyrics found"
+            elif result.startswith('skipped'):
+                color = Style.RESET_ALL  # Couleur par défaut pour les fichiers ignorés
+                status = result
             else:
                 color = Fore.RED
                 status = result
@@ -164,7 +175,7 @@ class LyricsFetcher:
                 elif file_path.lower().endswith('.m4a'):
                     try:
                         audio = MP4(file_path)
-                        audio['\xa9lyr'] = [result['lyrics']]  # Balise lyrics pour M4A
+                        audio['\xa9lyr'] = [result['lyrics']]
                         audio.save()
                     except Exception as e:
                         print(f"Erreur lors de l'enregistrement des paroles dans {file_path}: {e}", file=sys.stderr)
@@ -174,9 +185,10 @@ def main():
     parser.add_argument('directory', help='Directory containing audio files')
     parser.add_argument('--recursive', '-r', action='store_true', help='Process subdirectories recursively')
     parser.add_argument('--dry', '-d', action='store_true', help='Dry run (no prompt for saving)')
+    parser.add_argument('--force-dl', '-f', action='store_true', help='Force lyrics download even if already present')
     args = parser.parse_args()
 
-    fetcher = LyricsFetcher(CONFIG_FILE)
+    fetcher = LyricsFetcher(CONFIG_FILE, force_dl=args.force_dl)
     
     # Phase 1: Fetching
     fetcher.process_directory(args.directory, args.recursive)
