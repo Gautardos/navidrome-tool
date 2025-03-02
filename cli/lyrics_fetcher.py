@@ -13,6 +13,7 @@ from colorama import Fore, Style
 import sys
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
+from bs4 import BeautifulSoup  # Ajout pour parser les pages Genius
 
 colorama.init()
 
@@ -65,13 +66,13 @@ class LyricsFetcher:
         except Exception as e:
             print(f"Erreur lrclib : {e}", file=sys.stderr)
 
-        try:
-            results = self.sp.search(q=f'track:{title} artist:{artist}', type='track', limit=1)
-            if results['tracks']['items']:
-                track_id = results['tracks']['items'][0]['id']
-                print(f"Spotify : Piste trouvée ({track_id}), mais pas de paroles disponibles via API", file=sys.stderr)
-        except Exception as e:
-            print(f"Erreur Spotify synced : {e}", file=sys.stderr)
+        #try:
+        #    results = self.sp.search(q=f'track:{title} artist:{artist}', type='track', limit=1)
+        #    if results['tracks']['items']:
+        #        track_id = results['tracks']['items'][0]['id']
+        #        print(f"Spotify : Piste trouvée ({track_id}), mais pas de paroles disponibles via API", file=sys.stderr)
+        #except Exception as e:
+        #    print(f"Erreur Spotify synced : {e}", file=sys.stderr)
 
         return None, False
 
@@ -83,17 +84,38 @@ class LyricsFetcher:
             data = response.json()
             if data['response']['hits']:
                 song_url = data['response']['hits'][0]['result']['url']
-                return "", False
+                # Requête HTTP pour récupérer la page web de Genius
+                page_response = requests.get(song_url, headers={'User-Agent': 'Mozilla/5.0'})
+                if page_response.status_code == 200:
+                    soup = BeautifulSoup(page_response.text, 'html.parser')
+                    # Récupérer tous les conteneurs de paroles
+                    lyrics_containers = soup.find_all('div', {'data-lyrics-container': 'true'})
+                    if lyrics_containers:
+                        lyrics = ''
+                        for container in lyrics_containers:
+                            # Remplacer les <br> par des sauts de ligne
+                            for br in container.find_all('br'):
+                                br.replace_with('\n')
+                            # Ajouter le texte du conteneur avec un saut de ligne
+                            lyrics += container.get_text(separator='\n') + '\n'
+                        # Nettoyer le texte : supprimer les espaces multiples et ajouter un saut de ligne avant chaque '['
+                        lyrics_lines = []
+                        for line in lyrics.split('\n'):
+                            line = line.strip()
+                            if line:  # Ignorer les lignes vides
+                                if line.startswith('['):
+                                    lyrics_lines.append('')  # Ajouter une ligne vide avant la section
+                                lyrics_lines.append(line)
+                        lyrics = '\n'.join(lyrics_lines)
+                        return lyrics, False  # Retourne les paroles non synchronisées
+                    else:
+                        print(f"Erreur : Paroles non trouvées dans la page {song_url}", file=sys.stderr)
+                else:
+                    print(f"Erreur : Impossible de charger la page {song_url} (statut {page_response.status_code})", file=sys.stderr)
+            else:
+                print(f"Aucune chanson trouvée pour '{title}' par '{artist}' sur Genius", file=sys.stderr)
         except Exception as e:
             print(f"Erreur Genius : {e}", file=sys.stderr)
-
-        try:
-            results = self.sp.search(q=f'track:{title} artist:{artist}', type='track', limit=1)
-            if results['tracks']['items']:
-                track_id = results['tracks']['items'][0]['id']
-                return f"Track found on Spotify ({track_id}) - No lyrics available", False
-        except Exception as e:
-            print(f"Erreur Spotify unsynced : {e}", file=sys.stderr)
 
         return None, False
 
