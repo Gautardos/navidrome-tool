@@ -30,10 +30,11 @@ SOURCES = {
 }
 
 class LyricsFetcher:
-    def __init__(self, config_file, force_dl=False, add_unsync=False):
+    def __init__(self, config_file, force_dl_all=False, force_dl_unsync=False, add_unsync=False):
         self.config = self.load_config()
         self.results = {}
-        self.force_dl = force_dl  # Stockage du flag --force-dl
+        self.force_dl_all = force_dl_all  # Stockage du flag --force-dl-all
+        self.force_dl_unsync = force_dl_unsync  # Stockage du flag --force-dl-unsync
         self.add_unsync = add_unsync  # Stockage du flag --add-unsync
         # Initialisation de Spotify avec spotipy
         self.sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
@@ -112,25 +113,64 @@ class LyricsFetcher:
 
         return None, False
 
+    def has_synced_lyrics(self, lyrics):
+        """Vérifie si les paroles sont synchronisées (contiennent des timestamps au format [mm:ss.xx])."""
+        if not lyrics:
+            return False
+        for line in lyrics.split('\n'):
+            line = line.strip()
+            if line.startswith('[') and ']' in line:
+                content = line.split(']')[0][1:]  # Extrait le contenu entre [ et ]
+                # Vérifie si le contenu ressemble à un timestamp [mm:ss.xx]
+                try:
+                    parts = content.split(':')
+                    if len(parts) == 2:  # Format [mm:ss]
+                        minutes, seconds = map(float, parts)
+                        if 0 <= minutes < 60 and 0 <= seconds < 60:
+                            return True
+                    elif len(parts) == 3:  # Format [mm:ss.xx]
+                        minutes, seconds = map(float, parts[:2])
+                        if 0 <= minutes < 60 and 0 <= seconds < 60:
+                            return True
+                except ValueError:
+                    continue  # Ignorer les lignes non conformes
+        return False
+
     def process_file(self, file_path):
         try:
             audio = EasyID3(file_path)
             title = audio.get('title', [''])[0]
             artist = audio.get('artist', [''])[0]
             
-            if 'instrumental' in self.get_genre(file_path):
+            if 'instrumental' in self.get_genre(file_path).lower():
                 return 'skipped (instrumental)'
+            
+            if 'ambiance' in self.get_genre(file_path).lower():
+                return 'skipped (ambiance)'
 
-            # Vérification des paroles existantes sauf si --force-dl est utilisé
-            if not self.force_dl:
-                if file_path.lower().endswith('.mp3'):
-                    audio_full = ID3(file_path)
-                    if audio_full.getall('USLT'):
-                        return 'skipped (lyrics already present)'
-                elif file_path.lower().endswith('.m4a'):
-                    audio_full = MP4(file_path)
-                    if audio_full.get('\xa9lyr', []):
-                        return 'skipped (lyrics already present)'
+            # Vérification des paroles existantes
+            existing_lyrics = None
+            is_existing_synced = False
+            if file_path.lower().endswith('.mp3'):
+                audio_full = ID3(file_path)
+                lyrics_tags = audio_full.getall('USLT')
+                if lyrics_tags:
+                    existing_lyrics = lyrics_tags[0].text
+                    is_existing_synced = self.has_synced_lyrics(existing_lyrics)
+            elif file_path.lower().endswith('.m4a'):
+                audio_full = MP4(file_path)
+                if audio_full.get('\xa9lyr', []):
+                    existing_lyrics = audio_full['\xa9lyr'][0]
+                    is_existing_synced = self.has_synced_lyrics(existing_lyrics)
+
+            # Conditions pour skipper sauf si force-dl-all ou force-dl-unsync s'applique
+            if existing_lyrics:
+                if self.force_dl_all:
+                    pass  # On force le téléchargement dans tous les cas
+                elif self.force_dl_unsync and not is_existing_synced:
+                    pass  # On force uniquement si les paroles existantes sont non synchronisées
+                else:
+                    return 'skipped (lyrics already present)'
 
             # Priorité aux lyrics synchronisés
             lyrics, is_synced = self.fetch_synced_lyrics(title, artist)
@@ -202,17 +242,18 @@ def main():
     parser.add_argument('--recursive', '-r', action='store_true', help='Process subdirectories recursively')
     parser.add_argument('--dry', '-d', action='store_true', help='Dry run (no prompt for saving)')
     parser.add_argument('--force-save', '-s', action='store_true', help='Saves without prompting')
-    parser.add_argument('--force-dl', '-f', action='store_true', help='Force lyrics download even if already present')
+    parser.add_argument('--force-dl-all', '-f', action='store_true', help='Force lyrics download in all cases, even if already present')
+    parser.add_argument('--force-dl-unsync', '-n', action='store_true', help='Force lyrics download only if existing lyrics are unsynchronized')
     parser.add_argument('--add-unsync', '-u', action='store_true', help='Fetch unsynchronized lyrics from Genius if synced lyrics are not found')
     args = parser.parse_args()
 
-    fetcher = LyricsFetcher(CONFIG_FILE, force_dl=args.force_dl, add_unsync=args.add_unsync)
+    fetcher = LyricsFetcher(CONFIG_FILE, force_dl_all=args.force_dl_all, force_dl_unsync=args.force_dl_unsync, add_unsync=args.add_unsync)
     
     # Phase 1: Fetching
     fetcher.process_directory(args.directory, args.recursive)
     fetcher.display_report()
 
-    #Phase 2: Validation
+    # Phase 2: Validation
     if not args.dry and any(isinstance(r, dict) for r in fetcher.results.values()):
         if args.force_save:
             fetcher.save_lyrics()
