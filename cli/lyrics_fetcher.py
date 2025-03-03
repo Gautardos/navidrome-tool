@@ -30,10 +30,11 @@ SOURCES = {
 }
 
 class LyricsFetcher:
-    def __init__(self, config_file, force_dl=False):
+    def __init__(self, config_file, force_dl=False, add_unsync=False):
         self.config = self.load_config()
         self.results = {}
         self.force_dl = force_dl  # Stockage du flag --force-dl
+        self.add_unsync = add_unsync  # Stockage du flag --add-unsync
         # Initialisation de Spotify avec spotipy
         self.sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
             client_id=self.config["spotify"]["client_id"],
@@ -65,14 +66,6 @@ class LyricsFetcher:
                 return data['syncedLyrics'], True
         except Exception as e:
             print(f"Erreur lrclib : {e}", file=sys.stderr)
-
-        #try:
-        #    results = self.sp.search(q=f'track:{title} artist:{artist}', type='track', limit=1)
-        #    if results['tracks']['items']:
-        #        track_id = results['tracks']['items'][0]['id']
-        #        print(f"Spotify : Piste trouvée ({track_id}), mais pas de paroles disponibles via API", file=sys.stderr)
-        #except Exception as e:
-        #    print(f"Erreur Spotify synced : {e}", file=sys.stderr)
 
         return None, False
 
@@ -141,7 +134,8 @@ class LyricsFetcher:
 
             # Priorité aux lyrics synchronisés
             lyrics, is_synced = self.fetch_synced_lyrics(title, artist)
-            if not lyrics:
+            # Si pas de paroles synchronisées et --add-unsync activé, tenter les paroles non synchronisées
+            if not lyrics and self.add_unsync:
                 lyrics, is_synced = self.fetch_unsynced_lyrics(title, artist)
 
             if lyrics:
@@ -207,24 +201,30 @@ def main():
     parser.add_argument('directory', help='Directory containing audio files')
     parser.add_argument('--recursive', '-r', action='store_true', help='Process subdirectories recursively')
     parser.add_argument('--dry', '-d', action='store_true', help='Dry run (no prompt for saving)')
+    parser.add_argument('--force-save', '-s', action='store_true', help='Saves without prompting')
     parser.add_argument('--force-dl', '-f', action='store_true', help='Force lyrics download even if already present')
+    parser.add_argument('--add-unsync', '-u', action='store_true', help='Fetch unsynchronized lyrics from Genius if synced lyrics are not found')
     args = parser.parse_args()
 
-    fetcher = LyricsFetcher(CONFIG_FILE, force_dl=args.force_dl)
+    fetcher = LyricsFetcher(CONFIG_FILE, force_dl=args.force_dl, add_unsync=args.add_unsync)
     
     # Phase 1: Fetching
     fetcher.process_directory(args.directory, args.recursive)
     fetcher.display_report()
 
-    # Phase 2: Validation
+    #Phase 2: Validation
     if not args.dry and any(isinstance(r, dict) for r in fetcher.results.values()):
-        print(f"\n{Fore.GREEN}Save lyrics to files? (y/n): {Style.RESET_ALL}", end='')
-        choice = input().lower()
-        if choice == 'y':
+        if args.force_save:
             fetcher.save_lyrics()
             print("Lyrics saved successfully!")
         else:
-            print("Lyrics not saved.")
+            print(f"\n{Fore.GREEN}Save lyrics to files? (y/n): {Style.RESET_ALL}", end='')
+            choice = input().lower()
+            if choice == 'y':
+                fetcher.save_lyrics()
+                print("Lyrics saved successfully!")
+            else:
+                print("Lyrics not saved.")
 
 if __name__ == "__main__":
     main()
