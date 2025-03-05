@@ -18,8 +18,8 @@ CONFIG_PATH = os.path.join(SCRIPT_DIR, '..', 'etc', 'config.json')
 try:
     with open(CONFIG_PATH, 'r') as config_file:
         config = json.load(config_file)
-    NAVIDROME_USERNAME = config['navidrome_user_auth']['username']
-    NAVIDROME_PASSWORD = config['navidrome_user_auth']['password']
+    NAVIDROME_USERNAME = config['navidrome']['username']
+    NAVIDROME_PASSWORD = config['navidrome']['password']
 except FileNotFoundError:
     print(f"Erreur : Le fichier de configuration {CONFIG_PATH} n'a pas été trouvé.")
     exit(1)
@@ -31,8 +31,8 @@ except json.JSONDecodeError as e:
     exit(1)
 
 # Configuration
-ITUNES_LIBRARY_PATH = "/music/Itunes folder/iTunes Music Library.xml"
-NAVIDROME_URL = "http://localhost:4533/rest"  # URL de base pour les appels Subsonic
+ITUNES_LIBRARY_PATH = config['paths']['itunes_library_file']
+NAVIDROME_URL = config['navidrome']['url']  # URL de base pour les appels Subsonic
 
 def get_navidrome_session(debug=False):
     """Obtient les paramètres d'authentification pour Navidrome avec un mot de passe encodé en hexadécimal."""
@@ -266,7 +266,7 @@ def update_song_rating(navidrome_song_id, rating, session_params, debug=False):
             print(f"Erreur lors de la mise à jour : {e}")
 
 def parse_itunes_xml(limit=None, artist_filter=None, album_filter=None, debug=False):
-    """Parse le fichier XML iTunes manuellement pour extraire les chansons avec rating manuel, en suivant la structure dict > dict > dict, avec filtres optionnels."""
+    """Parse le fichier XML iTunes manuellement pour extraire les chansons avec rating manuel, en suivant la structure dict > dict > dict, avec filtres optionnels et gestion de Compilation."""
     if not os.path.exists(ITUNES_LIBRARY_PATH):
         if debug:
             print(f"Le fichier {ITUNES_LIBRARY_PATH} n'existe pas.")
@@ -298,13 +298,14 @@ def parse_itunes_xml(limit=None, artist_filter=None, album_filter=None, debug=Fa
     # Itérer sur les noeuds <dict> de 3ème niveau (les chansons)
     for song_dict in library_dict.findall('dict'):
         total_songs += 1
-        # Extraire les champs pertinents (Rating, Rating Computed, Name, Artist, Album Artist, Album)
+        # Extraire les champs pertinents (Rating, Rating Computed, Name, Artist, Album Artist, Album, Compilation)
         artist = None
         album_artist = None
         album = None
         name = None
         rating = None
         rating_computed = None
+        is_compilation = False  # Initialisation explicite pour éviter UnboundLocalError
 
         # Parcourir les éléments enfants de chaque chanson pour associer chaque <key> à sa valeur suivante
         i = 0
@@ -316,25 +317,51 @@ def parse_itunes_xml(limit=None, artist_filter=None, album_filter=None, debug=Fa
                 j = i + 1
                 while j < len(song_dict) and song_dict[j].tag == 'key':
                     j += 1
-                if j < len(song_dict) and song_dict[j].tag in ['string', 'integer']:
-                    value = song_dict[j].text
-                    if value is None or (value.strip() == '' and song_dict[j].tag == 'string'):
-                        value = None  # Traite les chaînes vides comme None
-                    if debug and value is None:
-                        print(f"Debug: Valeur manquante ou vide pour clé '{key}' dans la chanson {total_songs}")
-                    if key == "Artist":
-                        artist = value
-                    elif key in ["Album Artist", "AlbumArtist"]:  # Gère les deux formes possibles
-                        album_artist = value
-                    elif key == "Album":
-                        album = value
-                    elif key == "Name":
-                        name = value
-                    elif key == "Rating":
-                        rating = int(value) if value and value.isdigit() else None
-                    elif key == "Rating Computed":
-                        rating_computed = int(value) if value and value.isdigit() else None
+                if j < len(song_dict):
+                    value_elem = song_dict[j]
+                    if value_elem.tag in ['string', 'integer']:
+                        value = value_elem.text
+                        if value is None or (value.strip() == '' and value_elem.tag == 'string'):
+                            value = None  # Traite les chaînes vides comme None
+                        if debug and value is None:
+                            print(f"Debug: Valeur manquante ou vide pour clé '{key}' dans la chanson {total_songs}")
+                        if key == "Artist":
+                            artist = value
+                        elif key in ["Album Artist", "AlbumArtist"]:  # Gère les deux formes possibles
+                            album_artist = value
+                        elif key == "Album":
+                            album = value
+                        elif key == "Name":
+                            name = value
+                        elif key == "Rating":
+                            rating = int(value) if value and value.isdigit() else None
+                        elif key == "Rating Computed":
+                            # Gère <true/> ou <false/> comme booléen, sinon convertit en entier si numérique
+                            if value_elem.tag == 'true':
+                                rating_computed = True
+                            elif value_elem.tag == 'false':
+                                rating_computed = False
+                            else:
+                                rating_computed = int(value) if value and value.isdigit() else None
+                        elif key == "Compilation":
+                            # Gère <true/> ou <false/> comme booléen
+                            if value_elem.tag == 'true':
+                                is_compilation = True
+                            elif value_elem.tag == 'false':
+                                is_compilation = False
+                            else:
+                                is_compilation = bool(int(value)) if value and value.isdigit() else False
+                    elif value_elem.tag in ['true', 'false']:
+                        # Gère directement les balises <true/> et <false/>
+                        if key == "Rating Computed":
+                            rating_computed = value_elem.tag == 'true'
+                        elif key == "Compilation":
+                            is_compilation = value_elem.tag == 'true'
             i += 1
+
+        # Forcer l'artiste à "Various Artists" si la chanson est une compilation
+        if is_compilation:
+            artist = "Various Artists"
 
         # Appliquer les filtres si spécifiés (insensible à la casse)
         if artist_filter and (artist or '').lower() != artist_filter.lower():
@@ -343,7 +370,7 @@ def parse_itunes_xml(limit=None, artist_filter=None, album_filter=None, debug=Fa
             continue
 
         # Vérifier si c'est une chanson avec rating manuel, avec gestion des valeurs par défaut
-        if (rating is not None and rating > 0 and (rating_computed is None or rating_computed == 0) and
+        if (rating is not None and rating > 0 and (rating_computed is None or not rating_computed) and
             (artist or '').strip() and (album or '').strip() and (name or '').strip()):
             valid_songs += 1
             rated_songs.append({
@@ -353,9 +380,12 @@ def parse_itunes_xml(limit=None, artist_filter=None, album_filter=None, debug=Fa
                 'name': name or 'Untitled',
                 'rating': rating
             })
+            if debug:
+                print(f"Debug: Chanson {total_songs} retenue - Artist={artist}, Album={album}, Name={name}, "
+                      f"Rating={rating}, Rating Computed={rating_computed}, Compilation={is_compilation}")
         elif debug:
             print(f"Debug: Chanson {total_songs} ignorée - Artist={artist}, Album={album}, Name={name}, "
-                  f"Rating={rating}, Rating Computed={rating_computed}")
+                  f"Rating={rating}, Rating Computed={rating_computed}, Compilation={is_compilation}")
 
     if debug:
         print(f"Nombre total de chansons analysées : {total_songs}")
@@ -412,8 +442,8 @@ def match_songs_with_navidrome(rated_songs, artists, session_params, force_updat
         print(f"Matching terminé : {sum(1 for song in matched_songs if song['found'])} chansons trouvées sur {len(matched_songs)}.")
     return matched_songs
 
-def display_matched_songs(matched_songs, output_errors_only=False, debug=False):
-    """Affiche les chansons avec coloration (vert pour trouvées, rouge pour non trouvées, pas de couleur pour ignorées)."""
+def display_matched_songs(matched_songs, output_filter=None, debug=False):
+    """Affiche les chansons avec coloration (vert pour trouvées, rouge pour non trouvées, pas de couleur pour ignorées), selon le filtre spécifié."""
     total_songs = len(matched_songs)
     found_songs = sum(1 for song in matched_songs if song['found'] and not song['ignored'])
     not_found_songs = sum(1 for song in matched_songs if not song['found'] and not song['ignored'])
@@ -422,8 +452,14 @@ def display_matched_songs(matched_songs, output_errors_only=False, debug=False):
     print("\nDétail des morceaux :")
 
     for song in matched_songs:
-        if output_errors_only and (song['found'] or song['ignored']):
-            continue  # N’affiche que les chansons non trouvées (rouges) si --output-errors-only est activé
+        # Appliquer le filtre output_filter
+        if output_filter == 'errors' and (song['found'] or song['ignored']):
+            continue  # N’affiche que les chansons non trouvées (rouges)
+        elif output_filter == 'untouched' and (not song['ignored']):
+            continue  # N’affiche que les chansons ignorées (pas de couleur)
+        elif output_filter == 'updates' and (not song['found'] or song['ignored']):
+            continue  # N’affiche que les chansons trouvées et mises à jour (vert)
+
         color = None
         if song['found'] and not song['ignored']:
             color = Fore.GREEN  # Chansons trouvées (vert)
@@ -464,7 +500,7 @@ def main():
     parser.add_argument('--artist', type=str, help="Filtrer les chansons par artiste (insensible à la casse).")
     parser.add_argument('--album', type=str, help="Filtrer les chansons par album (insensible à la casse).")
     parser.add_argument('--force-update', action='store_true', help="Forcer la mise à jour des ratings même s'ils existent déjà dans Navidrome.")
-    parser.add_argument('--output-errors-only', action='store_true', help="N'afficher que les chansons non trouvées (lignes rouges) dans le récapitulatif.")
+    parser.add_argument('--output-filter', type=str, choices=['errors', 'untouched', 'updates'], help="Filtrer l'affichage des chansons : 'errors' (non trouvées, rouges), 'untouched' (ignorées, pas de couleur), 'updates' (mises à jour, vert).")
     args = parser.parse_args()
 
     print("Étape 1 : Préparation de l’authentification Subsonic...")
@@ -488,7 +524,7 @@ def main():
     matched_songs = match_songs_with_navidrome(rated_songs, artists, session_params, force_update=args.force_update, debug=args.debug)
 
     print("Étape 5 : Confirmation...")
-    display_matched_songs(matched_songs, output_errors_only=args.output_errors_only, debug=args.debug)
+    display_matched_songs(matched_songs, output_filter=args.output_filter, debug=args.debug)
     if confirm_send_to_navidrome(debug=args.debug):
         print("Envoi des ratings à Navidrome...")
         send_ratings_to_navidrome(matched_songs, session_params, debug=args.debug)

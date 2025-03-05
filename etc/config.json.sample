@@ -19,9 +19,15 @@
       "client_id": "",
       "client_secret": ""
     },
+    "navidrome": {
+      "url":"http://localhost:4533/rest",
+      "username": "",
+      "password": ""
+    },
     "paths": {
       "downloads": "/downloads/",
-      "music":"/music/downloads/"
+      "music":"/music/downloads/",
+      "itunes_library_file":"/music/Itunes folder/iTunes Music Library.xml"
     },
     "lyrics": {
         "lrclib": {
