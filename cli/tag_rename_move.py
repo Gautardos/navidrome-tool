@@ -6,6 +6,7 @@ import json
 import time
 import re
 from datetime import datetime
+from mutagen.id3 import ID3, TDRC  # Ajout pour gérer la date
 
 # Répertoires
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -69,7 +70,7 @@ def sanitize_name(name):
     name = " ".join(name.split()).strip()
     if name.endswith('.'):
         name = name.rstrip('.')  # Supprime le point uniquement s'il est à la fin
-    return name.replace("/", ",").replace('"', "").replace(":", "").replace("?", "") if name else ""
+    return name.replace("/", ",").replace('"', "").replace(":", "").replace("?", "").replace("¿", "") if name else ""
 
 def map_genre(genre, genre_patterns):
     """Mappe un genre vers une valeur standardisée en utilisant des expressions régulières configurables, avec journalisation pour débogage."""
@@ -105,9 +106,17 @@ def process_mp3_file(file_path, music_dir, genre_patterns):
         # Charge les tags ID3 avec mutagen
         try:
             audio = EasyID3(file_path)
+            # Charge aussi les tags complets pour gérer la date
+            audio_full = ID3(file_path)
         except Exception as e:
             log_action("Erreur de chargement des tags", file_path, f"Exception : {str(e)}")
             return
+
+        # Récupérer la date si elle existe
+        date = audio.get("originaldate", audio_full.get('TDRC', ['0000'])[0])
+        if isinstance(date, list):
+            date = date[0]  # Prendre la première valeur si c'est une liste
+        log_action("Date récupérée", file_path, f"Date: {date}")
 
         # Règle 1 : Mapper les genres musicaux avec des expressions régulières configurables
         if "genre" in audio:
@@ -170,6 +179,9 @@ def process_mp3_file(file_path, music_dir, genre_patterns):
         title = audio["title"][0]
         ext = os.path.splitext(file_path)[1].lower()
 
+        # Assurer que la date est conservée
+        audio["date"] = date
+
         # Vérifie si le nouveau nom existe déjà dans /music/downloads/<albumartist>/, et écrase l’ancien fichier
         processed_dir = get_processed_dir(main_artist, music_dir)
         new_filename = f"{artist} - {album} - {tracknum} - {title}{ext}"
@@ -183,9 +195,13 @@ def process_mp3_file(file_path, music_dir, genre_patterns):
                 log_action("Erreur lors de la suppression de l’ancien fichier", new_path, f"Exception : {str(e)}")
                 raise
 
-        # Sauvegarde les nouveaux tags
+        # Sauvegarde les nouveaux tags, y compris la date
         audio.save(file_path)
-        log_action("Tags ID3 sauvegardés", file_path, "")
+        # Vérification supplémentaire avec ID3 pour garantir la persistance de TDRC
+        audio_full = ID3(file_path)
+        audio_full['TDRC'] = TDRC(encoding=3, text=date)
+        audio_full.save(file_path)
+        log_action("Tags ID3 sauvegardés avec date", file_path, f"Date conservée: {date}")
 
         # Vérifier les permissions pour le répertoire source et destination
         source_dir = os.path.dirname(file_path)

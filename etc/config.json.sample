@@ -24,6 +24,21 @@
       "username": "",
       "password": ""
     },
+    "playlist_download": {
+      "provider":"zotify",
+      "download-lyrics":false,
+      "download-format":"mp3",
+      "download-quality":"very_high",
+      "song-archive":"/var/log/zotify/archive.txt",
+      "skip-previously-downloaded":false,
+      "retry-attempts":"3",
+      "download-real-time":false,
+      "credentials-location":"~/.local/share/zotify/credentials.json",
+      "print-download-progress":false,
+      "print-downloads":true,
+      "print-progress-info":false,
+      "output":"{artist} - {album} - {song_name}.{ext}"
+    },
     "paths": {
       "downloads": "/downloads/",
       "music":"/music/downloads/",
