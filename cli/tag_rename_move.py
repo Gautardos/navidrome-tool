@@ -189,6 +189,8 @@ def process_mp3_file(file_path, music_dir, genre_patterns):
         if os.path.exists(new_path):
             log_action("Fichier existant détecté, écrasement", file_path, f"Nom existant : {new_filename}")
             try:
+                OldAudio = EasyID3(new_path)
+                audio["genre"] = OldAudio["genre"]
                 os.remove(new_path)
                 log_action("Ancien fichier supprimé avec succès", new_path, "")
             except Exception as e:
