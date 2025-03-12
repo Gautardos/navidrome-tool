@@ -39,6 +39,9 @@
       "print-progress-info":false,
       "output":"{artist} - {album} - {song_name}.{ext}"
     },
+    "tag": {
+      "genre-tagging-mode":"mapping"
+    },
     "paths": {
       "downloads": "/downloads/",
       "music":"/music/downloads/",
