@@ -243,14 +243,15 @@ if (isset($_SESSION['logged_in'])) {
                     data: { description: description },
                     success: function(response) {
                         if (response.error) {
-                            $('#playlistPreview').html('Erreur : ' + response.error);
+                            $('#playlistPreview').val('Erreur : ' + response.error);
                         } else {
-                            $('#playlistPreview').html(JSON.stringify(response, null, 2));
+                            // Afficher la playlist dans le textarea en format éditable
+                            $('#playlistPreview').val(JSON.stringify(response, null, 2));
                             $('#savePlaylistSection').show();
                         }
                     },
                     error: function(xhr, status, error) {
-                        $('#playlistPreview').html('Erreur lors de la génération de la playlist.');
+                        $('#playlistPreview').val('Erreur lors de la génération de la playlist.');
                     }
                 });
             }
@@ -261,10 +262,12 @@ if (isset($_SESSION['logged_in'])) {
                     alert('Veuillez entrer un nom pour la playlist.');
                     return;
                 }
+                // Récupérer le contenu modifié du textarea
+                const modifiedPlaylist = $('#playlistPreview').val();
                 $.ajax({
                     url: 'save_smart_playlist.php',
                     method: 'POST',
-                    data: { name: name, playlist: $('#playlistPreview').text().replace('Playlist générée :\n', '') },
+                    data: { name: name, playlist: modifiedPlaylist },
                     success: function(response) {
                         if (response.success) {
                             alert('Playlist sauvegardée avec succès sous ' + name + '.nsp');
@@ -280,7 +283,7 @@ if (isset($_SESSION['logged_in'])) {
             }
 
             function cancelSmartPlaylist() {
-                $('#playlistPreview').html('Aucune playlist générée pour le moment.');
+                $('#playlistPreview').val('Aucune playlist générée pour le moment.');
                 $('#savePlaylistSection').hide();
                 $('#playlistDescription').val('');
             }
@@ -379,7 +382,7 @@ if (isset($_SESSION['logged_in'])) {
                 <button class="ui blue button" type="submit">Générer la playlist</button>
             </form>
             <h2 class="ui header">Playlist proposée</h2>
-            <div id="playlistPreview" class="ui segment output">Aucune playlist générée pour le moment.</div>
+            <textarea id="playlistPreview" class="ui segment output" style="width: 100%; min-height: 200px;">Aucune playlist générée pour le moment.</textarea>
             <div id="savePlaylistSection" style="display: none;">
                 <h2 class="ui header">Sauvegarder la playlist</h2>
                 <div class="ui form">
