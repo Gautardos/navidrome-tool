@@ -111,11 +111,12 @@ if (isset($_SESSION['logged_in'])) {
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/semantic-ui@2.5.0/dist/semantic.min.css">
         <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/semantic-ui@2.5.0/dist/semantic.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <style>
             body { padding: 20px; margin: 0; }
             .section { padding: 20px; }
             .ui.container { max-width: 1900px !important; margin: 0 auto; }
-            .ui.segment.output { white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+            .ui.segment.output { white-space: pre-wrap; overflow-y: auto; }
             .ui.sidebar { background: #f8f8f8; width: 250px; }
             .ui.sidebar .item { font-size: 1.2em; padding: 15px; color: #333; }
             .mobile-toggle { display: none; }
@@ -132,8 +133,8 @@ if (isset($_SESSION['logged_in'])) {
         </style>
         <script>
             let sortStates = {
-                'logs': { column: 'date', order: 'ASC' },
-                'tracks': { column: 'path', order: 'ASC' }
+                'logs': { column: 'date', order: 'DESC' },
+                'tracks': { column: 'id', order: 'DESC' }
             };
 
             function showSection(page) {
@@ -151,7 +152,11 @@ if (isset($_SESSION['logged_in'])) {
                     loadTable('logs', 1);
                 } else if (page === 'tracks') {
                     loadTable('tracks', 1);
-                } else if (page === 'smart-playlist') {}
+                } else if (page === 'smart-playlist') {
+                    // rien à faire
+                } else if (page === 'completeness') {
+                    updateCompletenessChart();
+                }
                 $('.ui.sidebar').sidebar('hide');
             }
 
@@ -220,6 +225,68 @@ if (isset($_SESSION['logged_in'])) {
                 });
             }
 
+            function updateCompletenessChart() {
+                $.ajax({
+                    url: 'completeness_stats.php',
+                    method: 'GET',
+                    dataType: 'json',
+                    success: function(response) {
+                        const ctx = document.getElementById('completenessChart').getContext('2d');
+                        
+                        if (window.completenessChart instanceof Chart) {
+                            window.completenessChart.destroy();
+                        }
+
+                        window.completenessChart = new Chart(ctx, {
+                            type: 'pie',
+                            data: {
+                                labels: response.labels,
+                                datasets: [{
+                                    data: response.values,
+                                    backgroundColor: [
+                                        '#2ecc71', // Success (100%)
+                                        '#3498db', // Good (75-99%)
+                                        '#f1c40f', // Warning (50-74%)
+                                        '#e74c3c', // Danger (<50%)
+                                        '#95a5a6'  // Unknown (NULL)
+                                    ]
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                plugins: {
+                                    legend: {
+                                        position: 'top',
+                                    },
+                                    title: {
+                                        display: true,
+                                        text: 'Répartition des morceaux par niveau de complétude'
+                                    },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: function(context) {
+                                                let label = context.label || '';
+                                                if (label) {
+                                                    label += ': ';
+                                                }
+                                                label += context.raw + ' morceaux (' + 
+                                                    ((context.raw / response.total) * 100).toFixed(1) + '%)';
+                                                return label;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        
+                        $('#totalTracks').text('Total des morceaux : ' + response.total);
+                    },
+                    error: function(xhr, status, error) {
+                        $('#completenessChartContainer').html('Erreur lors du chargement des statistiques.');
+                    }
+                });
+            }
+
             function addToQueue() {
                 const urls = $('#urls').val();
                 const sync = $('#sync').is(':checked') ? 1 : 0;
@@ -266,7 +333,7 @@ if (isset($_SESSION['logged_in'])) {
                     data: { description: description },
                     success: function(response) {
                         if (response.error) {
-                            $('#playlistPreview').val('Erreur : ' . response.error);
+                            $('#playlistPreview').val('Erreur : ' + response.error);
                         } else {
                             $('#playlistPreview').val(JSON.stringify(response, null, 2));
                             $('#savePlaylistSection').show();
@@ -327,12 +394,10 @@ if (isset($_SESSION['logged_in'])) {
                         $(`#${table}Pagination`).html(response.pagination);
                         $(`#${table}Table th.sortable`).off('click').on('click', function() {
                             const column = $(this).data('column');
-                            // Si on clique sur la même colonne, inverser l'ordre
                             if (sortStates[table].column === column) {
                                 sortStates[table].order = sortStates[table].order === 'ASC' ? 'DESC' : 'ASC';
                             } else {
-                                // Si nouvelle colonne, trier par ordre croissant par défaut
-                                sortStates[table] = { column: column, order: 'ASC' };
+                                sortStates[table] = { column: column, order: 'DESC' };
                             }
                             loadTable(table, 1);
                         });
@@ -399,6 +464,7 @@ if (isset($_SESSION['logged_in'])) {
                 setInterval(updateStatusHistory, 5000);
                 setInterval(updateDownloadHistory, 5000);
                 setInterval(updateDownloads, 30000);
+                setInterval(updateCompletenessChart, 30000);
             });
         </script>
     </head>
@@ -410,6 +476,7 @@ if (isset($_SESSION['logged_in'])) {
         <a class="item" href="javascript:void(0)" onclick="showSection('smart-playlist')">Créer une playlist</a>
         <a class="item" href="javascript:void(0)" onclick="showSection('logs')">Logs</a>
         <a class="item" href="javascript:void(0)" onclick="showSection('tracks')">Tracks</a>
+        <a class="item" href="javascript:void(0)" onclick="showSection('completeness')">Complétude</a>
         <a class="item" href="?logout">Déconnexion</a>
     </div>
 
@@ -422,6 +489,7 @@ if (isset($_SESSION['logged_in'])) {
             <a class="item" href="javascript:void(0)" onclick="showSection('smart-playlist')">Créer une playlist</a>
             <a class="item" href="javascript:void(0)" onclick="showSection('logs')">Logs</a>
             <a class="item" href="javascript:void(0)" onclick="showSection('tracks')">Tracks</a>
+            <a class="item" href="javascript:void(0)" onclick="showSection('completeness')">Complétude</a>
             <a class="right item" href="?logout">Déconnexion</a>
         </div>
 
@@ -505,7 +573,7 @@ if (isset($_SESSION['logged_in'])) {
                     <select id="logsPerPage">
                         <option value="10">10</option>
                         <option value="25">25</option>
-                        <option value="50">50</option>
+                        <option value="50" selected>50</option>
                         <option value="100">100</option>
                     </select>
                 </div>
@@ -534,7 +602,7 @@ if (isset($_SESSION['logged_in'])) {
                     <select id="tracksPerPage">
                         <option value="10">10</option>
                         <option value="25">25</option>
-                        <option value="50">50</option>
+                        <option value="50" selected>50</option>
                         <option value="100">100</option>
                     </select>
                 </div>
@@ -546,6 +614,16 @@ if (isset($_SESSION['logged_in'])) {
             </div>
             <div id="tracksTable" class="ui segment output"></div>
             <div id="tracksPagination" class="pagination"></div>
+        </div>
+
+        <div id="completeness" class="section" style="display: none;">
+            <h1 class="ui header">Analyse de la complétude de la base de données</h1>
+            <div class="ui segment">
+                <div id="completenessChartContainer" style="max-width: 600px; margin: 0 auto;">
+                    <canvas id="completenessChart"></canvas>
+                </div>
+                <div id="totalTracks" style="text-align: center; margin-top: 20px;"></div>
+            </div>
         </div>
     </div>
     </body>

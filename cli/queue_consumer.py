@@ -3,38 +3,22 @@ import os
 import json
 import time
 import pika
+import sqlite3
 from utils.config_manager import ConfigManager
+from utils.logger import Logger  # Changement d'import : utils.logger au lieu de utils.Logger
 
-# Chemin du virtual environment et chemins relatifs des fichiers d’historique
+# Chemins constants
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_PATH = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..', 'spotdl-venv/venv/bin/activate'))
-STATUS_HISTORY_FILE = os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'log', 'status_history.txt'))
-COMMAND_HISTORY_FILE = os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'log', 'command_history.txt'))
+DB_PATH = os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'db', 'database.db'))
 QUEUE_NAME = "spotdl_queue"
 
 # Initialisation du ConfigManager
 config_manager = ConfigManager()
 
-def ensure_directory(path):
-    """Assure que le répertoire existe avec les permissions correctes."""
-    directory = os.path.dirname(path)
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-
-def log_command(command, url):
-    """Journalise la commande exécutée dans command_history.txt."""
-    ensure_directory(COMMAND_HISTORY_FILE)
-    with open(COMMAND_HISTORY_FILE, 'a') as f:
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] URL: {url} - Commande: {command}\n")
-
-def log_status(url, message):
-    """Journalise les statuts dans status_history.txt."""
-    ensure_directory(STATUS_HISTORY_FILE)
-    with open(STATUS_HISTORY_FILE, 'a') as f:
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {url} - {message}\n")
-
-def callback(ch, method, properties, body):
+def callback(ch, method, properties, body, logger):
     start_time = time.time()
+    url = "Unknown"  # Défaut pour éviter des erreurs dans les logs
     try:
         data = json.loads(body.decode())
         url = data.get("url")
@@ -51,8 +35,7 @@ def callback(ch, method, properties, body):
             raise ValueError("Identifiants Spotify invalides dans le fichier de configuration")
 
         print(f"Processing URL: {url} with provider: {download_config['provider']}")
-        log_status(url, "Début du téléchargement...")
-        ensure_directory(STATUS_HISTORY_FILE)
+        logger.log("download", "info", "status", f"Début du téléchargement pour {url}")
 
         # Construire la commande en fonction du provider
         escaped_client_id = client_id.replace("{", "{{").replace("}", "}}")
@@ -87,16 +70,16 @@ def callback(ch, method, properties, body):
         else:
             raise ValueError(f"Provider '{download_config['provider']}' non pris en charge")
 
-        log_command(cmd, url)
+        logger.log("command", "info", "execute", f"Exécution de la commande pour {url}: {cmd}")
         process = subprocess.Popen(['/bin/bash', '-c', cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
 
         while True:
             output_line = process.stdout.readline()
             if output_line:
-                log_status(url, output_line.strip())
+                logger.log("download", "info", "status", output_line.strip())
             error_line = process.stderr.readline()
             if error_line:
-                log_status(url, f"ERREUR: {error_line.strip()}")
+                logger.log("download", "error", "status", f"ERREUR: {error_line.strip()}")
             if process.poll() is not None:
                 break
 
@@ -107,41 +90,50 @@ def callback(ch, method, properties, body):
 
         if return_code == 0:
             print(f"Download completed for {url} in {processing_time:.2f} seconds: {output}")
-            log_status(url, f"Téléchargement terminé avec succès en {processing_time:.2f} secondes")
+            logger.log("download", "info", "status", f"Téléchargement terminé avec succès en {processing_time:.2f} secondes")
             tag_rename_path = os.path.join(SCRIPT_DIR, 'tag_rename_move.py')
             if not os.path.exists(tag_rename_path):
                 print(f"Error: {tag_rename_path} not found")
-                log_status(url, f"Erreur : {tag_rename_path} n'existe pas")
+                logger.log("download", "error", "status", f"Erreur : {tag_rename_path} n'existe pas")
                 ch.basic_reject(delivery_tag=method.delivery_tag, requeue=False)
                 return
 
             process_cmd = f"source {VENV_PATH} && python3 {tag_rename_path}"
+            logger.log("command", "info", "execute", f"Post-traitement: {process_cmd}")
             process_result = subprocess.run(['/bin/bash', '-c', process_cmd], capture_output=True, text=True)
             if process_result.returncode == 0:
                 print(f"Processing completed for {url}")
-                log_status(url, "Fichiers traités et déplacés avec succès")
+                logger.log("download", "info", "status", "Fichiers traités et déplacés avec succès")
             else:
                 error_msg = process_result.stderr or "Erreur inconnue"
                 print(f"Error processing files for {url}: {error_msg}")
-                log_status(url, f"Erreur lors du traitement des fichiers : {error_msg}")
+                logger.log("download", "error", "status", f"Erreur lors du traitement des fichiers : {error_msg}")
                 ch.basic_reject(delivery_tag=method.delivery_tag, requeue=False)
                 return
 
             ch.basic_ack(delivery_tag=method.delivery_tag)
         else:
             print(f"Error downloading {url} in {processing_time:.2f} seconds: {error}")
-            log_status(url, f"Échec du téléchargement en {processing_time:.2f} secondes : {error.strip()}")
+            logger.log("download", "error", "status", f"Échec du téléchargement en {processing_time:.2f} secondes : {error.strip()}")
             ch.basic_reject(delivery_tag=method.delivery_tag, requeue=False)
     except Exception as e:
         end_time = time.time()
         processing_time = end_time - start_time
         print(f"Error processing message for {url} in {processing_time:.2f} seconds: {e}")
-        log_status(url, f"Erreur de traitement en {processing_time:.2f} secondes : {str(e)}")
+        logger.log("download", "error", "status", f"Erreur de traitement en {processing_time:.2f} secondes : {str(e)}")
         ch.basic_reject(delivery_tag=method.delivery_tag, requeue=False)
 
 def main():
     # Charger les identifiants RabbitMQ
     rabbitmq_config = config_manager.get_rabbitmq_config()
+
+    # Initialiser la connexion SQLite
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        logger = Logger(conn)  # Passer la connexion à Logger
+    except sqlite3.Error as e:
+        print(f"Erreur lors de la connexion à la base de données {DB_PATH} : {e}")
+        return
 
     # Connexion à RabbitMQ
     max_attempts = 5
@@ -163,6 +155,8 @@ def main():
             print(f"Tentative {attempt + 1}/{max_attempts} : Attente de RabbitMQ... (délai de {delay} secondes)")
             time.sleep(delay)
     else:
+        logger.log("download", "error", "status", "Impossible de se connecter à RabbitMQ après plusieurs tentatives")
+        conn.close()
         raise Exception("Impossible de se connecter à RabbitMQ après plusieurs tentatives")
 
     # Déclarer la file d'attente
@@ -170,15 +164,19 @@ def main():
 
     # Configurer le consommateur
     channel.basic_qos(prefetch_count=1)
-    channel.basic_consume(queue=QUEUE_NAME, on_message_callback=callback)
+    channel.basic_consume(queue=QUEUE_NAME, on_message_callback=lambda ch, method, properties, body: callback(ch, method, properties, body, logger))
 
     print("Waiting for messages. To exit press CTRL+C")
     try:
         channel.start_consuming()
     except KeyboardInterrupt:
         print("Consumer stopped by user")
+        logger.log("download", "info", "status", "Consommateur arrêté par l'utilisateur")
+    except Exception as e:
+        logger.log("download", "error", "status", f"Erreur inattendue dans le consommateur : {str(e)}")
     finally:
         connection.close()
+        conn.close()
 
 if __name__ == "__main__":
     try:

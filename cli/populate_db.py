@@ -92,7 +92,7 @@ def extract_metadata(file_path, file_mtime, logger):
         elif all([criteria["artist"], criteria["album"], criteria["title"], criteria["image"]]) and metadata["lyrics_type"] == "unsync":
             base_score = 90
         else:
-            base_score = 100  # Point de départ
+            base_score = 80  # Point de départ
             missing_count = sum(1 for value in criteria.values() if not value)
             base_score -= missing_count * 20
             base_score = max(0, base_score)  # Pas en dessous de 0
