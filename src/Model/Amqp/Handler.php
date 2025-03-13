@@ -33,8 +33,8 @@ class Handler
                 $virtualHost
             );
             $this->channel = $this->connection->channel();
-        } catch (Exception $e) {
-            throw new Exception("Erreur lors de l'initialisation de RabbitMQ : " . $e->getMessage());
+        } catch (\Exception $e) {
+            throw new \Exception("Erreur lors de l'initialisation de RabbitMQ : " . $e->getMessage());
         }
     }
 

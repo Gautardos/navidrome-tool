@@ -1,22 +1,25 @@
 <?php
-
 require __DIR__ . '/vendor/autoload.php';
 
-// Utiliser la classe ConfigReader sans require
 use Model\ConfigReader;
+use Model\Logger;
 
 session_start();
 
 $config = new ConfigReader();
-
 $userConfig = $config->getUserAuthConfig();
 
-$history_file = "../log/history.txt";
-$status_history_file = "../log/status_history.txt";
-
+// Vérifier si l'utilisateur demande une déconnexion
 if (isset($_GET['logout'])) {
+    try {
+        $logger = new Logger();
+        $logger->log('auth', 'info', 'logout', 'Utilisateur déconnecté avec succès');
+    } catch (Exception $e) {
+        error_log($e->getMessage());
+    }
     session_destroy();
     header("Location: /");
+    exit;
 }
 
 // Vérification de l'authentification
@@ -24,8 +27,20 @@ if (!isset($_SESSION['logged_in'])) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (isset($_POST['username']) && $_POST['username'] === $userConfig['username'] && $_POST['password'] === $userConfig['password']) {
             $_SESSION['logged_in'] = true;
+            try {
+                $logger = new Logger();
+                $logger->log('auth', 'info', 'login', 'Utilisateur ' . $_POST['username'] . ' connecté avec succès');
+            } catch (Exception $e) {
+                error_log($e->getMessage());
+            }
         } else {
             $error_message = "Identifiants incorrects.";
+            try {
+                $logger = new Logger();
+                $logger->log('auth', 'error', 'login', 'Échec de connexion pour l\'utilisateur ' . ($_POST['username'] ?? 'inconnu'));
+            } catch (Exception $e) {
+                error_log($e->getMessage());
+            }
         }
     }
 
@@ -93,28 +108,34 @@ if (isset($_SESSION['logged_in'])) {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>SpotDL Queue Manager</title>
-        <!-- Semantic UI CSS -->
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/semantic-ui@2.5.0/dist/semantic.min.css">
-        <!-- jQuery -->
         <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-        <!-- Semantic UI JS -->
         <script src="https://cdn.jsdelivr.net/npm/semantic-ui@2.5.0/dist/semantic.min.js"></script>
         <style>
             body { padding: 20px; margin: 0; }
-            .section {padding: 20px;}
-            .ui.container { max-width: 1200px !important; margin: 0 auto; }
+            .section { padding: 20px; }
+            .ui.container { max-width: 1900px !important; margin: 0 auto; }
             .ui.segment.output { white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
             .ui.sidebar { background: #f8f8f8; width: 250px; }
             .ui.sidebar .item { font-size: 1.2em; padding: 15px; color: #333; }
             .mobile-toggle { display: none; }
+            .ui.table { font-size: 0.9em; }
+            .ui.table th.sortable { cursor: pointer; }
+            .ui.table th.sortable:hover { background-color: #f5f5f5; }
+            .pagination { margin-top: 20px; }
             @media (max-width: 767px) {
                 .mobile-toggle { display: block; position: fixed; top: 10px; left: 10px; z-index: 1000; }
                 .ui.top.menu .item { display: none !important; }
-                .ui.top.menu a.mobile-toggle.item { display: block !important; top:0; }
+                .ui.top.menu a.mobile-toggle.item { display: block !important; }
                 .ui.container { padding: 10px; }
             }
         </style>
         <script>
+            let sortStates = {
+                'logs': { column: 'date', order: 'ASC' },
+                'tracks': { column: 'path', order: 'ASC' }
+            };
+
             function showSection(page) {
                 $('.section').hide();
                 $('#' + page).show();
@@ -126,8 +147,12 @@ if (isset($_SESSION['logged_in'])) {
                     updateStatusHistory();
                 } else if (page === 'history') {
                     updateDownloadHistory();
-                }
-                $('.ui.sidebar').sidebar('hide'); // Ferme la sidebar après sélection
+                } else if (page === 'logs') {
+                    loadTable('logs', 1);
+                } else if (page === 'tracks') {
+                    loadTable('tracks', 1);
+                } else if (page === 'smart-playlist') {}
+                $('.ui.sidebar').sidebar('hide');
             }
 
             function updateQueueStatus() {
@@ -203,7 +228,6 @@ if (isset($_SESSION['logged_in'])) {
                     method: 'POST',
                     data: { urls: urls, sync: sync },
                     success: function(response) {
-                        console.log('Réponse brute:', response); // Débogage
                         try {
                             const data = typeof response === 'string' ? JSON.parse(response) : response;
                             $('#output').html(data.message || data.error || 'Réponse inattendue');
@@ -215,7 +239,6 @@ if (isset($_SESSION['logged_in'])) {
                     },
                     error: function(xhr, status, error) {
                         $('#output').html('Erreur AJAX: ' + error);
-                        console.log('Erreur AJAX:', xhr.responseText); // Débogage
                     }
                 });
             }
@@ -227,7 +250,7 @@ if (isset($_SESSION['logged_in'])) {
                     data: { action: action },
                     success: function(response) {
                         alert(response.message || 'Action exécutée avec succès.');
-                        updateQueueStatus(); // Rafraîchir l’état de la file après l’action
+                        updateQueueStatus();
                     },
                     error: function(xhr, status, error) {
                         alert('Erreur lors de l’exécution de l’action : ' + error);
@@ -243,9 +266,8 @@ if (isset($_SESSION['logged_in'])) {
                     data: { description: description },
                     success: function(response) {
                         if (response.error) {
-                            $('#playlistPreview').val('Erreur : ' + response.error);
+                            $('#playlistPreview').val('Erreur : ' . response.error);
                         } else {
-                            // Afficher la playlist dans le textarea en format éditable
                             $('#playlistPreview').val(JSON.stringify(response, null, 2));
                             $('#savePlaylistSection').show();
                         }
@@ -262,7 +284,6 @@ if (isset($_SESSION['logged_in'])) {
                     alert('Veuillez entrer un nom pour la playlist.');
                     return;
                 }
-                // Récupérer le contenu modifié du textarea
                 const modifiedPlaylist = $('#playlistPreview').val();
                 $.ajax({
                     url: 'save_smart_playlist.php',
@@ -288,29 +309,96 @@ if (isset($_SESSION['logged_in'])) {
                 $('#playlistDescription').val('');
             }
 
-            $(document).ready(function() {
-                $('.ui.sidebar').append('<a class="item" href="javascript:void(0)" onclick="showSection(\'smart-playlist\')">Créer une playlist</a>');
-                $('.ui.top.menu').append('<a class="item" href="javascript:void(0)" onclick="showSection(\'smart-playlist\')">Créer une playlist</a>');
-            });
+            function loadTable(table, page) {
+                const filters = {};
+                $(`#${table}Filters .field input`).each(function() {
+                    if ($(this).val()) filters[$(this).attr('name')] = $(this).val();
+                });
+                const perPage = $(`#${table}PerPage`).val();
+                const sortColumn = sortStates[table].column || (table === 'logs' ? 'date' : 'path');
+                const sortOrder = sortStates[table].order || 'ASC';
+
+                $.ajax({
+                    url: 'fetch_table.php',
+                    method: 'POST',
+                    data: { table, page, filters, sortColumn, sortOrder, perPage },
+                    success: function(response) {
+                        $(`#${table}Table`).html(response.table);
+                        $(`#${table}Pagination`).html(response.pagination);
+                        $(`#${table}Table th.sortable`).off('click').on('click', function() {
+                            const column = $(this).data('column');
+                            // Si on clique sur la même colonne, inverser l'ordre
+                            if (sortStates[table].column === column) {
+                                sortStates[table].order = sortStates[table].order === 'ASC' ? 'DESC' : 'ASC';
+                            } else {
+                                // Si nouvelle colonne, trier par ordre croissant par défaut
+                                sortStates[table] = { column: column, order: 'ASC' };
+                            }
+                            loadTable(table, 1);
+                        });
+                    },
+                    error: function() {
+                        $(`#${table}Table`).html('Erreur lors du chargement des données.');
+                    }
+                });
+            }
+
+            function bulkAction(table, action) {
+                const selected = [];
+                $(`#${table}Table .checkbox input[type=checkbox]:checked`).each(function() {
+                    selected.push($(this).data('id'));
+                });
+                if (selected.length === 0) {
+                    alert('Aucune entrée sélectionnée.');
+                    return;
+                }
+
+                $.ajax({
+                    url: 'manage_table.php',
+                    method: 'POST',
+                    data: { table, action, ids: selected },
+                    success: function(response) {
+                        alert(response.message);
+                        loadTable(table, 1);
+                    },
+                    error: function(xhr, status, error) {
+                        alert('Erreur lors de l’action : ' + error);
+                    }
+                });
+            }
+
+            function purgeTable(table) {
+                if (confirm('Voulez-vous vraiment purger toute la table ' + table + ' ?')) {
+                    $.ajax({
+                        url: 'manage_table.php',
+                        method: 'POST',
+                        data: { table, action: 'purge' },
+                        success: function(response) {
+                            alert(response.message);
+                            loadTable(table, 1);
+                        },
+                        error: function(xhr, status, error) {
+                            alert('Erreur lors de la purge : ' + error);
+                        }
+                    });
+                }
+            }
 
             $(document).ready(function() {
+                $('.ui.sidebar').sidebar({
+                    transition: 'overlay',
+                    mobileTransition: 'overlay'
+                });
+                $('.mobile-toggle').click(function() {
+                    $('.ui.sidebar').sidebar('toggle');
+                });
+
                 showSection('download');
                 setInterval(updateQueueStatus, 5000);
                 setInterval(updateCurrentStatus, 5000);
                 setInterval(updateStatusHistory, 5000);
                 setInterval(updateDownloadHistory, 5000);
                 setInterval(updateDownloads, 30000);
-
-                // Initialisation de la sidebar
-                $('.ui.sidebar').sidebar({
-                    transition: 'overlay',
-                    mobileTransition: 'overlay'
-                });
-
-                // Ouvrir/Fermer la sidebar avec le burger
-                $('.mobile-toggle').click(function() {
-                    $('.ui.sidebar').sidebar('toggle');
-                });
             });
         </script>
     </head>
@@ -319,6 +407,9 @@ if (isset($_SESSION['logged_in'])) {
         <a class="item" href="javascript:void(0)" onclick="showSection('download')">Gestion de file</a>
         <a class="item" href="javascript:void(0)" onclick="showSection('status')">Statuts & Historique</a>
         <a class="item" href="javascript:void(0)" onclick="showSection('history')">Historique</a>
+        <a class="item" href="javascript:void(0)" onclick="showSection('smart-playlist')">Créer une playlist</a>
+        <a class="item" href="javascript:void(0)" onclick="showSection('logs')">Logs</a>
+        <a class="item" href="javascript:void(0)" onclick="showSection('tracks')">Tracks</a>
         <a class="item" href="?logout">Déconnexion</a>
     </div>
 
@@ -328,6 +419,9 @@ if (isset($_SESSION['logged_in'])) {
             <a class="item" href="javascript:void(0)" onclick="showSection('download')">Gestion de file</a>
             <a class="item" href="javascript:void(0)" onclick="showSection('status')">Statuts & Historique</a>
             <a class="item" href="javascript:void(0)" onclick="showSection('history')">Historique</a>
+            <a class="item" href="javascript:void(0)" onclick="showSection('smart-playlist')">Créer une playlist</a>
+            <a class="item" href="javascript:void(0)" onclick="showSection('logs')">Logs</a>
+            <a class="item" href="javascript:void(0)" onclick="showSection('tracks')">Tracks</a>
             <a class="right item" href="?logout">Déconnexion</a>
         </div>
 
@@ -394,6 +488,64 @@ if (isset($_SESSION['logged_in'])) {
                     <button class="ui red button" onclick="cancelSmartPlaylist()">Annuler</button>
                 </div>
             </div>
+        </div>
+
+        <div id="logs" class="section" style="display: none;">
+            <h1 class="ui header">Gestion des logs</h1>
+            <div id="logsFilters" class="ui form">
+                <div class="fields">
+                    <div class="field"><input type="text" name="date" placeholder="Filtrer par date"></div>
+                    <div class="field"><input type="text" name="type" placeholder="Filtrer par type"></div>
+                    <div class="field"><input type="text" name="level" placeholder="Filtrer par niveau"></div>
+                    <div class="field"><input type="text" name="group" placeholder="Filtrer par groupe"></div>
+                    <div class="field"><input type="text" name="message" placeholder="Filtrer par message"></div>
+                </div>
+                <div class="field">
+                    <label>Par page</label>
+                    <select id="logsPerPage">
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+                <button class="ui blue button" onclick="loadTable('logs', 1)">Appliquer</button>
+            </div>
+            <div class="ui segment">
+                <button class="ui red button" onclick="purgeTable('logs')">Purger la table</button>
+                <button class="ui orange button" onclick="bulkAction('logs', 'delete')">Supprimer sélection</button>
+            </div>
+            <div id="logsTable" class="ui segment output"></div>
+            <div id="logsPagination" class="pagination"></div>
+        </div>
+
+        <div id="tracks" class="section" style="display: none;">
+            <h1 class="ui header">Gestion des pistes</h1>
+            <div id="tracksFilters" class="ui form">
+                <div class="fields">
+                    <div class="field"><input type="text" name="path" placeholder="Filtrer par chemin"></div>
+                    <div class="field"><input type="text" name="title" placeholder="Filtrer par titre"></div>
+                    <div class="field"><input type="text" name="artist" placeholder="Filtrer par artiste"></div>
+                    <div class="field"><input type="text" name="album" placeholder="Filtrer par album"></div>
+                    <div class="field"><input type="text" name="year" placeholder="Filtrer par année"></div>
+                </div>
+                <div class="field">
+                    <label>Par page</label>
+                    <select id="tracksPerPage">
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+                <button class="ui blue button" onclick="loadTable('tracks', 1)">Appliquer</button>
+            </div>
+            <div class="ui segment">
+                <button class="ui red button" onclick="purgeTable('tracks')">Purger la table</button>
+                <button class="ui orange button" onclick="bulkAction('tracks', 'delete')">Supprimer sélection</button>
+            </div>
+            <div id="tracksTable" class="ui segment output"></div>
+            <div id="tracksPagination" class="pagination"></div>
         </div>
     </div>
     </body>

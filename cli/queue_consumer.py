@@ -3,96 +3,35 @@ import os
 import json
 import time
 import pika
+from utils.config_manager import ConfigManager
 
 # Chemin du virtual environment et chemins relatifs des fichiers d’historique
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_PATH = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..', 'spotdl-venv/venv/bin/activate'))
 STATUS_HISTORY_FILE = os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'log', 'status_history.txt'))
 COMMAND_HISTORY_FILE = os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'log', 'command_history.txt'))
-
-# Chemin du fichier de configuration RabbitMQ
-CONFIG_PATH = os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'etc', 'config.json'))
 QUEUE_NAME = "spotdl_queue"
 
-def load_rabbitmq_config():
-    """Charge les identifiants RabbitMQ depuis config.json."""
-    try:
-        with open(CONFIG_PATH, 'r') as f:
-            config = json.load(f)
-        rabbitmq_config = config.get('rabbitmq', {})
-        return {
-            'host': rabbitmq_config.get('host', 'localhost'),
-            'port': rabbitmq_config.get('port', 5672),
-            'username': rabbitmq_config.get('username', 'gautard'),
-            'password': rabbitmq_config.get('password', 'gautard'),
-            'virtual_host': rabbitmq_config.get('virtual_host', '/')
-        }
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Le fichier de configuration {CONFIG_PATH} est introuvable")
-    except json.JSONDecodeError:
-        raise ValueError(f"Le fichier {CONFIG_PATH} n'est pas un JSON valide")
-    except Exception as e:
-        raise Exception(f"Erreur lors du chargement de {CONFIG_PATH} : {str(e)}")
-
-def load_download_config():
-    """Charge les paramètres de téléchargement depuis config.json."""
-    try:
-        with open(CONFIG_PATH, 'r') as f:
-            config = json.load(f)
-        download_config = config.get('playlist_download', {})
-        spotify_config = config.get('spotify', {})
-        paths_config = config.get('paths', {})
-        return {
-            'provider': download_config.get('provider', 'spotdl'),  # Par défaut "spotdl"
-            'download_lyrics': download_config.get('download-lyrics', True),
-            'download_format': download_config.get('download-format', 'mp3'),
-            'download_quality': download_config.get('download-quality', 'very_high'),
-            'credentials_location': download_config.get('credentials-location', ''),
-            'song_archive': download_config.get('song-archive', '/archive.txt'),
-            'skip_previously_downloaded': download_config.get('skip-previously-downloaded', True),
-            'print_download_progress':download_config.get('print-download-progress', True),
-            'print_progress_info':download_config.get('print-progress-info', True),
-            'print_downloads':download_config.get('print-downloads', True),
-            'retry_attempts': download_config.get('retry-attempts', 3),
-            'download_real_time': download_config.get('download-real-time', True),
-            'root_path': paths_config.get('downloads', ''),  # Chemin de sortie
-            'client_id': spotify_config.get('client_id'),
-            'client_secret': spotify_config.get('client_secret'),
-            'output': download_config.get('output', 3),
-            'song_archive': download_config.get('song-archive', ''),
-            'username': spotify_config.get('username'),
-            'password': spotify_config.get('password')
-        }
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Le fichier de configuration {CONFIG_PATH} est introuvable")
-    except json.JSONDecodeError:
-        raise ValueError(f"Le fichier {CONFIG_PATH} n'est pas un JSON valide")
-    except Exception as e:
-        raise Exception(f"Erreur lors du chargement de {CONFIG_PATH} : {str(e)}")
+# Initialisation du ConfigManager
+config_manager = ConfigManager()
 
 def ensure_directory(path):
     """Assure que le répertoire existe avec les permissions correctes."""
     directory = os.path.dirname(path)
     if not os.path.exists(directory):
         os.makedirs(directory)
-    #os.chown(directory, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
-    #os.chmod(directory, 0o775)
 
 def log_command(command, url):
     """Journalise la commande exécutée dans command_history.txt."""
     ensure_directory(COMMAND_HISTORY_FILE)
     with open(COMMAND_HISTORY_FILE, 'a') as f:
         f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] URL: {url} - Commande: {command}\n")
-    #os.chown(COMMAND_HISTORY_FILE, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
-    #os.chmod(COMMAND_HISTORY_FILE, 0o664)
 
 def log_status(url, message):
     """Journalise les statuts dans status_history.txt."""
     ensure_directory(STATUS_HISTORY_FILE)
     with open(STATUS_HISTORY_FILE, 'a') as f:
         f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {url} - {message}\n")
-    #os.chown(STATUS_HISTORY_FILE, 1000, 33)  # UID de gautard (1000), GID de www-data (33)
-    #os.chmod(STATUS_HISTORY_FILE, 0o664)
 
 def callback(ch, method, properties, body):
     start_time = time.time()
@@ -104,7 +43,7 @@ def callback(ch, method, properties, body):
         client_secret = data.get("client_secret", None)
 
         # Charger la configuration de téléchargement
-        download_config = load_download_config()
+        download_config = config_manager.get_download_config()
         if not client_id or not client_secret:
             client_id = download_config['client_id']
             client_secret = download_config['client_secret']
@@ -121,10 +60,15 @@ def callback(ch, method, properties, body):
         cmd = ""
 
         if download_config['provider'].lower() == 'spotdl':
-            cmd = f"source {VENV_PATH} && spotdl '{url}' {'--sync' if sync else ''} --client-id '{escaped_client_id}' --client-secret '{escaped_client_secret}' --output {download_config['root_path']} --config 2>&1"
-            
+            cmd = (
+                f"source {VENV_PATH} && spotdl '{url}' "
+                f"{'--sync' if sync else ''} "
+                f"--client-id '{escaped_client_id}' "
+                f"--client-secret '{escaped_client_secret}' "
+                f"--output {download_config['root_path']} "
+                f"--config 2>&1"
+            )
         elif download_config['provider'].lower() == 'zotify':
-            # Ajouter les arguments spécifiques à Zotify (exemple basé sur la doc de zotify)
             cmd = (
                 f"source {VENV_PATH} && zotify '{url}' "
                 f"--output '{download_config['output']}' "
@@ -164,7 +108,6 @@ def callback(ch, method, properties, body):
         if return_code == 0:
             print(f"Download completed for {url} in {processing_time:.2f} seconds: {output}")
             log_status(url, f"Téléchargement terminé avec succès en {processing_time:.2f} secondes")
-            # Lancer tag_rename_move.py après un téléchargement réussi (inchangé)
             tag_rename_path = os.path.join(SCRIPT_DIR, 'tag_rename_move.py')
             if not os.path.exists(tag_rename_path):
                 print(f"Error: {tag_rename_path} not found")
@@ -197,12 +140,12 @@ def callback(ch, method, properties, body):
         ch.basic_reject(delivery_tag=method.delivery_tag, requeue=False)
 
 def main():
-    # Charger les identifiants RabbitMQ depuis config.json
-    rabbitmq_config = load_rabbitmq_config()
+    # Charger les identifiants RabbitMQ
+    rabbitmq_config = config_manager.get_rabbitmq_config()
 
-    # Connexion à RabbitMQ pour les URLs, avec un délai pour attendre RabbitMQ et un heartbeat personnalisé
+    # Connexion à RabbitMQ
     max_attempts = 5
-    delay = 10  # Augmente le délai à 10 secondes pour éviter des connexions trop rapides
+    delay = 10
     for attempt in range(max_attempts):
         try:
             credentials = pika.PlainCredentials(rabbitmq_config['username'], rabbitmq_config['password'])
@@ -225,8 +168,8 @@ def main():
     # Déclarer la file d'attente
     channel.queue_declare(queue=QUEUE_NAME, durable=True)
 
-    # Configurer le consommateur pour un traitement strictement séquentiel
-    channel.basic_qos(prefetch_count=1)  # Limiter à un message à la fois
+    # Configurer le consommateur
+    channel.basic_qos(prefetch_count=1)
     channel.basic_consume(queue=QUEUE_NAME, on_message_callback=callback)
 
     print("Waiting for messages. To exit press CTRL+C")
