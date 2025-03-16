@@ -37,6 +37,7 @@ def init_db(conn):
     conn.commit()
 
 # Extraction des métadonnées et calcul de la complétude
+# Extraction des métadonnées et calcul de la complétude
 def extract_metadata(file_path, file_mtime, logger):
     try:
         audio = mutagen.File(file_path, easy=True)
@@ -62,6 +63,23 @@ def extract_metadata(file_path, file_mtime, logger):
         # Déterminer le type de paroles avec la classe Lyrics
         lyrics_type = Lyrics.get_lyrics_type(lyrics) if lyrics else None
 
+        # Vérifier la présence d'images selon le type de fichier
+        has_image = 0
+        if file_path.endswith(".mp3") and id3:
+            # Pour les fichiers MP3, vérifier les tags APIC
+            has_image = 1 if id3.getall("APIC") else 0
+        elif file_path.endswith(".m4a"):
+            # Pour les fichiers M4A, charger avec MP4 pour accéder aux tags bruts
+            mp4_audio = mutagen.mp4.MP4(file_path)
+            has_image = 1 if 'covr' in mp4_audio else 0
+        elif file_path.endswith(".flac"):
+            # Pour les fichiers FLAC, vérifier audio.pictures
+            has_image = 1 if hasattr(audio, 'pictures') and audio.pictures else 0
+
+        # Récupérer le genre
+        genre = tags.get("genre", [None])[0]
+        is_classical_or_instrumental = genre and any(x in genre.lower() for x in ["classical", "instrumental"])
+
         # Métadonnées de base
         metadata = {
             "path": file_path,
@@ -71,8 +89,8 @@ def extract_metadata(file_path, file_mtime, logger):
             "artist": tags.get("artist", [None])[0],
             "album_artist": tags.get("albumartist", [None])[0] or tags.get("artist", [None])[0],
             "year": int(tags.get("date", [None])[0].split("-")[0]) if tags.get("date") else None,
-            "genre": tags.get("genre", [None])[0],
-            "has_image": 1 if id3 and id3.getall("APIC") else 0 if id3 else (1 if audio.pictures else 0),
+            "genre": genre,
+            "has_image": has_image,
             "lyrics_type": lyrics_type,
             "completeness": 0.0
         }
@@ -83,19 +101,29 @@ def extract_metadata(file_path, file_mtime, logger):
             "artist": metadata["artist"] is not None,
             "album": metadata["album"] is not None,
             "title": metadata["title"] is not None,
-            "image": metadata["has_image"] == 1,
-            "lyrics": metadata["lyrics_type"] is not None
+            "image": metadata["has_image"] == 1
         }
 
-        if all(criteria.values()) and metadata["lyrics_type"] == "sync":
-            base_score = 100
-        elif all([criteria["artist"], criteria["album"], criteria["title"], criteria["image"]]) and metadata["lyrics_type"] == "unsync":
-            base_score = 90
+        if is_classical_or_instrumental:
+            # Pour classical/instrumental : ignorer les paroles
+            if all(criteria.values()):
+                base_score = 100
+            else:
+                base_score = 100  # Point de départ
+                missing_count = sum(1 for value in criteria.values() if not value)
+                base_score -= missing_count * 20
+                base_score = max(0, base_score)  # Pas en dessous de 0
         else:
-            base_score = 80  # Point de départ
-            missing_count = sum(1 for value in criteria.values() if not value)
-            base_score -= missing_count * 20
-            base_score = max(0, base_score)  # Pas en dessous de 0
+            # Pour les autres genres : inclure les paroles dans le calcul
+            if all(criteria.values()) and metadata["lyrics_type"] == "sync":
+                base_score = 100
+            elif all([criteria["artist"], criteria["album"], criteria["title"], criteria["image"]]) and metadata["lyrics_type"] == "unsync":
+                base_score = 90
+            else:
+                base_score = 80  # Point de départ
+                missing_count = sum(1 for value in criteria.values() if not value)
+                base_score -= missing_count * 20
+                base_score = max(0, base_score)  # Pas en dessous de 0
 
         metadata["completeness"] = base_score
 
