@@ -30,11 +30,31 @@ try {
         return '"' . str_replace('"', '""', $column) . '"';
     };
 
-    // Construction de la clause WHERE avec guillemets autour des colonnes
+    // Construction de la clause WHERE avec gestion spéciale pour completeness
     $whereClauses = [];
+    $bindValues = [];
     foreach ($filters as $column => $value) {
         if (in_array($column, $validColumns[$table])) {
-            $whereClauses[] = $escapeColumn($column) . " LIKE :$column";
+            if ($column === 'completeness' && $table === 'tracks') {
+                if ($value === 'NULL') {
+                    $whereClauses[] = $escapeColumn($column) . " IS NULL";
+                } elseif ($value === '1') {
+                    $whereClauses[] = $escapeColumn($column) . " = :completeness";
+                    $bindValues[':completeness'] = 1;
+                } elseif ($value === '<0.5') {
+                    $whereClauses[] = $escapeColumn($column) . " < 0.5 AND " . $escapeColumn($column) . " IS NOT NULL";
+                } elseif (preg_match('/^(\d*\.?\d+)-(\d*\.?\d+)$/', $value, $matches)) {
+                    // Plage de valeurs (ex: 0.5-0.74)
+                    $min = floatval($matches[1]);
+                    $max = floatval($matches[2]);
+                    $whereClauses[] = $escapeColumn($column) . " BETWEEN :completeness_min AND :completeness_max";
+                    $bindValues[':completeness_min'] = $min;
+                    $bindValues[':completeness_max'] = $max;
+                }
+            } else {
+                $whereClauses[] = $escapeColumn($column) . " LIKE :$column";
+                $bindValues[":$column"] = "%$value%";
+            }
         }
     }
     $whereSql = !empty($whereClauses) ? 'WHERE ' . implode(' AND ', $whereClauses) : '';
@@ -53,8 +73,8 @@ try {
     }
 
     $countStmt = $conn->prepare("SELECT COUNT(*) FROM $table $whereSql");
-    foreach ($filters as $column => $value) {
-        $countStmt->bindValue(":$column", "%$value%");
+    foreach ($bindValues as $key => $value) {
+        $countStmt->bindValue($key, $value);
     }
     $countStmt->execute();
     $totalRows = $countStmt->fetchColumn();
@@ -62,8 +82,8 @@ try {
 
     $offset = ($page - 1) * $perPage;
     $stmt = $conn->prepare("SELECT * FROM $table $whereSql $orderSql LIMIT :offset, :perPage");
-    foreach ($filters as $column => $value) {
-        $stmt->bindValue(":$column", "%$value%");
+    foreach ($bindValues as $key => $value) {
+        $stmt->bindValue($key, $value);
     }
     $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
     $stmt->bindValue(':perPage', $perPage, PDO::PARAM_INT);

@@ -156,6 +156,7 @@ if (isset($_SESSION['logged_in'])) {
                     // rien à faire
                 } else if (page === 'completeness') {
                     updateCompletenessChart();
+                    updateGenreChart();
                 }
                 $('.ui.sidebar').sidebar('hide');
             }
@@ -275,6 +276,30 @@ if (isset($_SESSION['logged_in'])) {
                                             }
                                         }
                                     }
+                                },
+                                onClick: (event, elements) => {
+                                    if (elements.length > 0) {
+                                        const index = elements[0].index;
+                                        const label = response.labels[index];
+                                        let filterValue;
+
+                                        // Déterminer la plage de complétude pour le filtre
+                                        if (label === 'Complète (100%)') {
+                                            filterValue = '1';
+                                        } else if (label === 'Bonne (75-99%)') {
+                                            filterValue = '0.75-0.99';
+                                        } else if (label === 'Moyenne (50-74%)') {
+                                            filterValue = '0.5-0.74';
+                                        } else if (label === 'Faible (<50%)') {
+                                            filterValue = '<0.5';
+                                        } else if (label === 'Inconnue') {
+                                            filterValue = 'NULL';
+                                        }
+
+                                        // Rediriger vers la section Tracks avec un filtre
+                                        showSection('tracks');
+                                        loadTableWithFilter('tracks', 1, { completeness: filterValue });
+                                    }
                                 }
                             }
                         });
@@ -283,6 +308,99 @@ if (isset($_SESSION['logged_in'])) {
                     },
                     error: function(xhr, status, error) {
                         $('#completenessChartContainer').html('Erreur lors du chargement des statistiques.');
+                    }
+                });
+            }
+
+            function generateColors(count) {
+                const colors = [
+                    '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#C9CB3F',
+                    '#7BCB3F', '#3FCB7B', '#3F7BCB', '#CB3F7B', '#7B3FCB', '#CB7B3F', '#3FCBFF',
+                    '#FF3FCB', '#FF5733', '#33FF57', '#3357FF', '#FF33A1', '#A1FF33', '#33A1FF',
+                    '#FF8333', '#33FF83', '#8333FF', '#FF3383', '#83FF33', '#3383FF', '#FF3333',
+                    '#33FF33', '#3333FF', '#FF33FF', '#FFFF33', '#33FFFF', '#FF6633', '#33FF66',
+                    '#6633FF', '#FF3366', '#66FF33', '#3366FF', '#FF9933', '#33FF99', '#9933FF',
+                    '#FF3399', '#99FF33', '#3399FF', '#FFCC33', '#33FFCC', '#CC33FF', '#FF33CC',
+                    '#CCFF33', '#33CCFF', '#FF3333', '#33FF33', '#3333FF', '#FF33FF', '#FFFF33',
+                    '#33FFFF', '#FF6666', '#66FF66', '#6666FF'
+                ];
+
+                // Si plus de couleurs sont nécessaires, générer dynamiquement
+                if (count > colors.length) {
+                    for (let i = colors.length; i < count; i++) {
+                        const hue = (i * 137.508) % 360; // Utilisation de la "golden angle" pour des couleurs bien réparties
+                        colors.push(`hsl(${hue}, 70%, 50%)`);
+                    }
+                }
+
+                return colors.slice(0, count);
+            }
+
+            function updateGenreChart() {
+                $.ajax({
+                    url: 'genre_stats.php',
+                    method: 'GET',
+                    dataType: 'json',
+                    success: function(response) {
+                        const ctx = document.getElementById('genreChart').getContext('2d');
+                        
+                        if (window.genreChart instanceof Chart) {
+                            window.genreChart.destroy();
+                        }
+
+                        // Générer les couleurs en fonction du nombre de genres
+                        const colors = generateColors(response.labels.length);
+
+                        window.genreChart = new Chart(ctx, {
+                            type: 'pie',
+                            data: {
+                                labels: response.labels,
+                                datasets: [{
+                                    data: response.values,
+                                    backgroundColor: colors
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                plugins: {
+                                    legend: {
+                                        position: 'top',
+                                    },
+                                    title: {
+                                        display: true,
+                                        text: 'Répartition des morceaux par genre'
+                                    },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: function(context) {
+                                                let label = context.label || '';
+                                                if (label) {
+                                                    label += ': ';
+                                                }
+                                                label += context.raw + ' morceaux (' + 
+                                                    ((context.raw / response.total) * 100).toFixed(1) + '%)';
+                                                return label;
+                                            }
+                                        }
+                                    }
+                                },
+                                onClick: (event, elements) => {
+                                    if (elements.length > 0) {
+                                        const index = elements[0].index;
+                                        const label = response.labels[index];
+
+                                        // Rediriger vers la section Tracks avec un filtre sur le genre
+                                        showSection('tracks');
+                                        loadTableWithFilter('tracks', 1, { genre: label });
+                                    }
+                                }
+                            }
+                        });
+                        
+                        $('#totalGenres').text('Nombre total de genres : ' + response.uniqueGenres);
+                    },
+                    error: function(xhr, status, error) {
+                        $('#genreChartContainer').html('Erreur lors du chargement des statistiques de genre.');
                     }
                 });
             }
@@ -408,6 +526,43 @@ if (isset($_SESSION['logged_in'])) {
                 });
             }
 
+            function loadTableWithFilter(table, page, predefinedFilters) {
+                // Réinitialiser les champs de filtre
+                $(`#${table}Filters .field input`).val('');
+
+                // Appliquer les filtres prédéfinis
+                const filters = predefinedFilters || {};
+                for (const [key, value] of Object.entries(filters)) {
+                    $(`#${table}Filters input[name="${key}"]`).val(value);
+                }
+
+                const perPage = $(`#${table}PerPage`).val();
+                const sortColumn = sortStates[table].column || (table === 'logs' ? 'date' : 'path');
+                const sortOrder = sortStates[table].order || 'ASC';
+
+                $.ajax({
+                    url: 'fetch_table.php',
+                    method: 'POST',
+                    data: { table, page, filters, sortColumn, sortOrder, perPage },
+                    success: function(response) {
+                        $(`#${table}Table`).html(response.table);
+                        $(`#${table}Pagination`).html(response.pagination);
+                        $(`#${table}Table th.sortable`).off('click').on('click', function() {
+                            const column = $(this).data('column');
+                            if (sortStates[table].column === column) {
+                                sortStates[table].order = sortStates[table].order === 'ASC' ? 'DESC' : 'ASC';
+                            } else {
+                                sortStates[table] = { column: column, order: 'DESC' };
+                            }
+                            loadTable(table, 1);
+                        });
+                    },
+                    error: function() {
+                        $(`#${table}Table`).html('Erreur lors du chargement des données.');
+                    }
+                });
+            }
+
             function bulkAction(table, action) {
                 const selected = [];
                 $(`#${table}Table .checkbox input[type=checkbox]:checked`).each(function() {
@@ -464,7 +619,8 @@ if (isset($_SESSION['logged_in'])) {
                 setInterval(updateStatusHistory, 5000);
                 setInterval(updateDownloadHistory, 5000);
                 setInterval(updateDownloads, 30000);
-                setInterval(updateCompletenessChart, 30000);
+                //setInterval(updateCompletenessChart, 30000);
+                //setInterval(updateGenreChart, 30000);
             });
         </script>
     </head>
@@ -596,6 +752,8 @@ if (isset($_SESSION['logged_in'])) {
                     <div class="field"><input type="text" name="artist" placeholder="Filtrer par artiste"></div>
                     <div class="field"><input type="text" name="album" placeholder="Filtrer par album"></div>
                     <div class="field"><input type="text" name="year" placeholder="Filtrer par année"></div>
+                    <div class="field"><input type="text" name="genre" placeholder="Filtrer par genre"></div>
+                    <div class="field"><input type="text" name="completeness" placeholder="Filtrer par complétude (ex: 0.5-0.74, <0.5, 1, NULL)"></div>
                 </div>
                 <div class="field">
                     <label>Par page</label>
@@ -623,6 +781,10 @@ if (isset($_SESSION['logged_in'])) {
                     <canvas id="completenessChart"></canvas>
                 </div>
                 <div id="totalTracks" style="text-align: center; margin-top: 20px;"></div>
+                <div id="genreChartContainer" style="max-width: 600px; margin: 20px auto;">
+                    <canvas id="genreChart"></canvas>
+                </div>
+                <div id="totalGenres" style="text-align: center; margin-top: 20px;"></div>
             </div>
         </div>
     </div>

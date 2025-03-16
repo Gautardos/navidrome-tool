@@ -20,7 +20,7 @@ try {
                 WHEN completeness = 100 THEN 'Parfaite (100%)'
                 WHEN completeness >= 90 THEN 'Excellente (90%)'
                 WHEN completeness >= 80 THEN 'Moyenne (80%)'
-                WHEN completeness >= 0.5 THEN 'Faible (50-80%)'
+                WHEN completeness >= 0.5 THEN 'Faible (50-79%)'
                 WHEN completeness < 0.5 THEN 'Nul! (<50%)'
                 ELSE 'Inconnue'
             END as completeness_range,
